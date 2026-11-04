@@ -45,7 +45,6 @@ Thumbs.db
 *.pem
 
 # Data - preserve raw, ignore processed/splits (regenerated)
-data/processed/
 data/splits/
 
 # Models - ignore trained artifacts (regenerated)

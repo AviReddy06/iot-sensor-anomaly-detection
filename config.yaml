@@ -1,0 +1,70 @@
+# IoT Anomaly Detection - Configuration
+
+# Serial Communication
+serial:
+  port: "COM19"              # Windows COM port (check Device Manager)
+  baudrate: 115200           # Must match ESP32 firmware
+  timeout: 1.0               # Read timeout in seconds
+  sampling_interval_ms: 2000 # Expected sampling interval (for gap detection)
+
+# Dataset Paths (relative to project root)
+data:
+  raw_dir: "data/raw"
+  processed_dir: "data/processed"
+  splits_dir: "data/splits"
+  
+  # Raw dataset filenames (immutable)
+  normal_csv: "normal_data.csv"
+  pilot_csv: "pilot_data.csv"
+  test_csv: "test.csv"
+  test_labels_csv: "test_labels.csv"
+  
+  # Processed dataset filenames (generated)
+  normal_clean_parquet: "normal_data_clean.parquet"
+  pilot_clean_parquet: "pilot_data_clean.parquet"
+  test_clean_parquet: "test_data_clean.parquet"
+
+# Feature Engineering
+features:
+  rolling_window: 10         # ~20 seconds at 2Hz
+  rolling_stats: ["mean", "std", "min", "max"]
+  diff_periods: [1]          # 1-step differences
+  time_features: true        # Cyclical hour/minute/second
+  scaler_type: "robust"      # "standard" or "robust"
+
+# Model Configuration
+model:
+  type: "isolation_forest"
+  n_estimators: 200
+  max_samples: "auto"
+  contamination: 0.01        # Expected anomaly rate in deployment
+  random_state: 42
+  n_jobs: -1
+
+# Model Paths
+model_paths:
+  model_dir: "models"
+  model_file: "iforest_model.pkl"
+  scaler_file: "scaler.pkl"
+  metadata_file: "metadata.json"
+
+# Detection / Inference
+detection:
+  score_window: 10           # Rolling window for score smoothing
+  alert_cooldown_sec: 30     # Minimum time between alerts
+  severity_thresholds:
+    warning: -0.1            # Anomaly score threshold for warning
+    critical: -0.3           # Anomaly score threshold for critical
+
+# Dashboard
+dashboard:
+  host: "localhost"
+  port: 8501
+  refresh_interval_sec: 2
+  history_hours: 24
+
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/app.log"

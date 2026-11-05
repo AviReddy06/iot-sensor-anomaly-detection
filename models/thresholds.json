@@ -1,0 +1,26 @@
+{
+  "iforest_threshold": -0.16307013076608584,
+  "zscore_threshold": 3.0,
+  "normal_temp_mean": 25.710143201321028,
+  "normal_temp_std": 0.827263990759796,
+  "normal_hum_mean": 61.36001461790422,
+  "normal_hum_std": 4.5060386829977475,
+  "feature_cols": [
+    "temperature",
+    "humidity",
+    "temperature_change",
+    "humidity_change",
+    "temperature_abs_change",
+    "humidity_abs_change",
+    "temp_rolling_mean_5",
+    "temp_rolling_std_5",
+    "hum_rolling_mean_5",
+    "hum_rolling_std_5",
+    "temp_rolling_mean_15",
+    "temp_rolling_std_15",
+    "hum_rolling_mean_15",
+    "hum_rolling_std_15"
+  ],
+  "GAP_THRESHOLD": 10,
+  "ROLL_MIN": 2
+}

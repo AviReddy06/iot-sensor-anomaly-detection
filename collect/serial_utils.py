@@ -5,11 +5,15 @@ from __future__ import annotations
 import math
 from pathlib import Path
 import sys
+import threading
 import time
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import serial
 import serial.tools.list_ports
+
+_PORT_LOCK = threading.Lock()
+_ACTIVE_SERIAL_PORTS: Dict[str, Tuple[threading.Event, threading.Thread, object]] = {}
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
@@ -86,6 +90,51 @@ def open_serial_port(
         if ser.in_waiting > 0:
             ser.readline()
     return ser
+
+
+def release_active_serial_port(port: str, join_timeout: float = 2.0) -> bool:
+    """
+    Close and stop any existing serial reader thread held by this Python process on `port`.
+    Prevents `PermissionError (Access is denied)` after browser refreshes or multi-page switches.
+    """
+    key = port.strip().upper()
+    with _PORT_LOCK:
+        entry = _ACTIVE_SERIAL_PORTS.pop(key, None)
+
+    if entry is None:
+        return False
+
+    old_stop, old_thread, old_ser = entry
+    old_stop.set()
+    if old_ser is not None:
+        try:
+            old_ser.close()
+        except Exception:
+            pass
+    if old_thread is not None and old_thread.is_alive() and old_thread is not threading.current_thread():
+        old_thread.join(timeout=join_timeout)
+    return True
+
+
+def register_active_serial_port(
+    port: str,
+    stop_event: threading.Event,
+    thread: threading.Thread,
+    ser: object,
+) -> None:
+    """Record active serial stream ownership for clean cross-page / refresh reclamation."""
+    key = port.strip().upper()
+    with _PORT_LOCK:
+        _ACTIVE_SERIAL_PORTS[key] = (stop_event, thread, ser)
+
+
+def unregister_active_serial_port(port: str, thread: threading.Thread) -> None:
+    """Release port ownership entry only if owned by `thread`."""
+    key = port.strip().upper()
+    with _PORT_LOCK:
+        entry = _ACTIVE_SERIAL_PORTS.get(key)
+        if entry is not None and entry[1] is thread:
+            _ACTIVE_SERIAL_PORTS.pop(key, None)
 
 
 def parse_sensor_line(

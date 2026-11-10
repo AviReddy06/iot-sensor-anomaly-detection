@@ -27,7 +27,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from alerts.streamlit_panel import render_alert_sidebar
-from collect.serial_utils import detect_esp32_port, list_serial_ports, open_serial_port, parse_sensor_line
+from collect.serial_utils import (
+    detect_esp32_port,
+    list_serial_ports,
+    open_serial_port,
+    parse_sensor_line,
+    register_active_serial_port,
+    release_active_serial_port,
+    unregister_active_serial_port,
+)
 from config import config
 from features.feature_engine import (
     MODEL_FEATURE_COLS,
@@ -191,8 +199,11 @@ def serial_reader(port: str, baud: int, q_out: queue.Queue, stop_event: threadin
     """Background thread reading validated ESP32 + DHT11 lines without resetting the board."""
     ser = None
     last_ts = None
+    curr_thread = threading.current_thread()
     try:
+        release_active_serial_port(port)
         ser = open_serial_port(port, baudrate=baud, timeout=1.0)
+        register_active_serial_port(port, stop_event, curr_thread, ser)
         while not stop_event.is_set():
             line_bytes = ser.readline()
             if not line_bytes:
@@ -215,12 +226,18 @@ def serial_reader(port: str, baud: int, q_out: queue.Queue, stop_event: threadin
                     pass
                 q_out.put_nowait(record)
     except serial.SerialException as exc:
-        q_out.put(("error", str(exc)))
+        if not stop_event.is_set():
+            q_out.put(("error", str(exc)))
     except Exception as exc:
-        q_out.put(("error", str(exc)))
+        if not stop_event.is_set():
+            q_out.put(("error", str(exc)))
     finally:
+        unregister_active_serial_port(port, curr_thread)
         if ser is not None and ser.is_open:
-            ser.close()
+            try:
+                ser.close()
+            except Exception:
+                pass
 
 
 def drain_serial_queue() -> None:
@@ -285,6 +302,7 @@ elif source_option == "Live from ESP32 (serial)":
                 st.session_state.serial_error = None
                 st.session_state.processed_df = None
                 st.session_state.is_collecting = True
+                st.session_state.active_serial_port = port
                 st.session_state.stop_event = threading.Event()
                 st.session_state.data_buffer.clear()
                 while not st.session_state.serial_queue.empty():
@@ -304,6 +322,7 @@ elif source_option == "Live from ESP32 (serial)":
                 st.session_state.is_collecting = False
                 if st.session_state.stop_event is not None:
                     st.session_state.stop_event.set()
+                release_active_serial_port(port)
                 if st.session_state.serial_thread is not None:
                     st.session_state.serial_thread.join(timeout=2)
                 st.rerun()

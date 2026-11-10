@@ -25,6 +25,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from alerts.streamlit_panel import load_recent_alert_log, render_alert_sidebar
+from collect.serial_utils import release_active_serial_port
 from config import config
 from features.feature_engine import (
     MODEL_FEATURE_COLS,
@@ -153,6 +154,9 @@ with st.sidebar:
             stop_ev = st.session_state.get("stop_event")
             if stop_ev is not None:
                 stop_ev.set()
+            active_port = st.session_state.get("active_serial_port", "")
+            if active_port:
+                release_active_serial_port(active_port)
             th = st.session_state.get("serial_thread")
             if th is not None:
                 th.join(timeout=2)

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from collect.serial_utils import detect_esp32_port, list_serial_ports, parse_sensor_line
+from collect.serial_utils import (
+    detect_esp32_port,
+    list_serial_ports,
+    parse_sensor_line,
+    register_active_serial_port,
+    release_active_serial_port,
+    unregister_active_serial_port,
+)
 
 
 @pytest.mark.parametrize(
@@ -56,3 +63,25 @@ def test_list_serial_ports_returns_list():
 def test_detect_esp32_port_returns_string():
     port = detect_esp32_port()
     assert isinstance(port, str) and len(port) > 0
+
+
+def test_active_serial_port_reclaim_stops_and_closes_previous():
+    import threading
+    from unittest.mock import MagicMock
+
+    stop_ev = threading.Event()
+    mock_ser = MagicMock()
+    dummy_thread = threading.Thread(target=lambda: stop_ev.wait(timeout=1.0), daemon=True)
+    dummy_thread.start()
+
+    register_active_serial_port("COM99", stop_ev, dummy_thread, mock_ser)
+    released = release_active_serial_port("com99")
+
+    assert released is True
+    assert stop_ev.is_set()
+    mock_ser.close.assert_called_once()
+    assert not dummy_thread.is_alive()
+
+    # Releasing again cleanly returns False
+    assert release_active_serial_port("COM99") is False
+    unregister_active_serial_port("COM99", dummy_thread)

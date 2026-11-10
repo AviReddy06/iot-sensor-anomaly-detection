@@ -47,11 +47,16 @@ def test_analyse_and_results_interactive_flow(project_root: Path):
     assert not at_an.exception
     if at_an.radio:
         at_an.radio[0].set_value("Demo data").run()
-    if at_an.button:
+    for choice in [
+        "Pilot Session Annotated (3,087 rows)",
+        "Legacy Test Set (56 rows)",
+        "Unseen Multi-Fault + Live Suite (1,950 rows)",
+    ]:
+        at_an.selectbox[0].set_value(choice).run()
         at_an.button[0].click().run()
-    assert not at_an.exception
-    assert not at_an.error
-    assert at_an.session_state["processed_df"] is not None
+        assert not at_an.exception, f"Exception loading {choice}: {at_an.exception}"
+        assert not at_an.error, f"Error loading {choice}: {at_an.error}"
+        assert at_an.session_state["processed_df"] is not None
 
     at_res = AppTest.from_file(str(project_root / "dashboard" / "pages" / "2_Results.py"), default_timeout=25)
     at_res.session_state["processed_df"] = at_an.session_state["processed_df"]

@@ -89,9 +89,11 @@ if "serial_error" not in st.session_state:
 
 def load_demo_dataset(choice: str) -> pd.DataFrame | None:
     """Load selected local evaluation/pilot/test dataset."""
+    pilot_prepared = PROJECT_ROOT / "data" / "processed" / "pilot_data_prepared.csv"
+    pilot_path = pilot_prepared if pilot_prepared.exists() else (PROJECT_ROOT / "data" / "raw" / "pilot_data.csv")
     file_map = {
         "Unseen Multi-Fault + Live Suite (1,950 rows)": PROJECT_ROOT / "data" / "processed" / "eval_test_suite.csv",
-        "Pilot Session Annotated (3,087 rows)": PROJECT_ROOT / "data" / "processed" / "pilot_data_prepared.csv",
+        "Pilot Session Annotated (3,087 rows)": pilot_path,
         "Legacy Test Set (56 rows)": PROJECT_ROOT / "data" / "processed" / "test_data_with_labels.csv",
     }
     path = file_map[choice]

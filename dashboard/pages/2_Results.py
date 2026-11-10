@@ -314,8 +314,10 @@ with tab_technical:
         if iforest_flag.any():
             ax2.scatter(df.loc[iforest_flag, "timestamp"], iforest_scores[iforest_flag], color="red", s=22, zorder=5)
         ax2.set_ylabel("Decision Score")
+        ax2.tick_params(axis="x", rotation=30)
         ax2.legend()
         ax2.grid(True, alpha=0.3)
+        fig2.tight_layout()
         st.pyplot(fig2)
         plt.close(fig2)
 
@@ -327,8 +329,10 @@ with tab_technical:
         if ewma_flag.any():
             ax3.scatter(df.loc[ewma_flag, "timestamp"], ewma_z[ewma_flag], color="red", s=22, zorder=5)
         ax3.set_ylabel("Max |EWMA-Z|")
+        ax3.tick_params(axis="x", rotation=30)
         ax3.legend()
         ax3.grid(True, alpha=0.3)
+        fig3.tight_layout()
         st.pyplot(fig3)
         plt.close(fig3)
 

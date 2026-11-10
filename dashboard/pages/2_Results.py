@@ -24,6 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from alerts.streamlit_panel import load_recent_alert_log, render_alert_sidebar
 from config import config
 from features.feature_engine import (
     MODEL_FEATURE_COLS,
@@ -160,6 +161,12 @@ with st.sidebar:
     st.caption("Severity Rules:")
     st.caption("Low: |Z| < 3 | Medium: 3 <= |Z| < 5 | High: |Z| >= 5")
 
+alert_mgr = render_alert_sidebar(
+    "results",
+    default_temp=float(df["temperature"].iloc[-1]) if len(df) else 26.0,
+    default_hum=float(df["humidity"].iloc[-1]) if len(df) else 58.0,
+)
+
 # Dynamic predictions using chosen sensitivity & thresholds
 iforest_scores = df["iforest_score"].to_numpy(dtype=float)
 iforest_flag = apply_gated_persistence(
@@ -174,6 +181,16 @@ z_temp = np.abs((df["temperature"].to_numpy(dtype=float) - normal_temp_mean) / n
 z_hum = np.abs((df["humidity"].to_numpy(dtype=float) - normal_hum_mean) / normal_hum_std)
 zscore_flag = (z_temp > zscore_threshold) | (z_hum > zscore_threshold)
 hybrid_flag = iforest_flag | ewma_flag
+
+if st.session_state.get("is_collecting", False) and len(df) > 0:
+    latest_row = df.iloc[-1].to_dict()
+    latest_row["iforest_anomaly"] = bool(iforest_flag[-1])
+    latest_row["ewma_z_score"] = float(ewma_z[-1])
+    latest_row["ewma_z_anomaly"] = bool(ewma_flag[-1])
+    latest_row["hybrid_anomaly"] = bool(hybrid_flag[-1])
+    dispatched = alert_mgr.evaluate_latest_row(latest_row, live_mode=True)
+    if dispatched is not None:
+        st.toast(f"🔔 Employee Alert: {dispatched.event_type} ({dispatched.severity})")
 
 mode_flag_map = {
     "Hybrid (IF + EWMA-Z)": hybrid_flag,

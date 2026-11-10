@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from alerts.streamlit_panel import render_alert_sidebar
 from collect.serial_utils import detect_esp32_port, list_serial_ports, open_serial_port, parse_sensor_line
 from config import config
 from features.feature_engine import (
@@ -310,6 +311,13 @@ elif source_option == "Live from ESP32 (serial)":
 if st.session_state.get("serial_error"):
     st.error(f"Serial Error: {st.session_state.serial_error}")
 
+latest_buf = st.session_state.data_buffer[-1] if st.session_state.data_buffer else {}
+alert_mgr = render_alert_sidebar(
+    "analyse",
+    default_temp=float(latest_buf.get("temperature", 26.0)),
+    default_hum=float(latest_buf.get("humidity", 58.0)),
+)
+
 if df_input is not None:
     with st.spinner("Computing session-aware features and scoring..."):
         processed = process_data(df_input, source_name)
@@ -329,6 +337,9 @@ if st.session_state.is_collecting:
         processed = process_data(live_df, "live")
         if processed is not None:
             st.session_state.processed_df = processed
+            dispatched = alert_mgr.process_latest(processed, live_mode=True)
+            if dispatched is not None:
+                st.toast(f"🔔 Employee Alert: {dispatched.event_type} ({dispatched.severity})")
     else:
         st.info(f"Streaming from ESP32... collected {len(st.session_state.data_buffer)} reading(s) so far.")
 

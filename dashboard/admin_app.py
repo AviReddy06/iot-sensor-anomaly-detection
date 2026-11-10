@@ -24,6 +24,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from alerts.notifier import load_alert_settings
+from alerts.streamlit_panel import load_recent_alert_log
 from config import config
 from preprocess.clean_datasets import load_raw_normal
 from features.feature_engine import (
@@ -406,6 +408,26 @@ with tab6:
     )
     st.subheader("Active `thresholds.json`")
     st.json(thresholds)
+
+    st.divider()
+    st.subheader("Employee Alert Configuration & Broadcast Log")
+    alert_cfg = load_alert_settings()
+    st.json(
+        {
+            "alerts_enabled": alert_cfg.enabled,
+            "building_zone": alert_cfg.building_zone,
+            "min_severity": alert_cfg.min_severity,
+            "cooldown_sec": alert_cfg.cooldown_sec,
+            "recovery_sec": alert_cfg.recovery_sec,
+            "active_channels": alert_cfg.active_channels(),
+            "comfort_guardrails_enabled": alert_cfg.comfort_enabled,
+        }
+    )
+    alert_hist_admin = load_recent_alert_log(limit=50)
+    if alert_hist_admin is not None and len(alert_hist_admin) > 0:
+        st.dataframe(alert_hist_admin, hide_index=True, width='stretch')
+    else:
+        st.info("No alert broadcasts logged yet (`logs/alert_history.csv`).")
 
 st.divider()
 st.caption("Admin Dashboard | IoT Anomaly Detection System")

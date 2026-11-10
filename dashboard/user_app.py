@@ -28,6 +28,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from alerts.streamlit_panel import load_recent_alert_log, render_alert_sidebar
 from collect.serial_utils import detect_esp32_port, list_serial_ports, open_serial_port, parse_sensor_line
 from config import config
 from features.feature_engine import (
@@ -203,6 +204,13 @@ def main() -> None:
         else:
             st.info("⚪ Disconnected")
 
+    latest_buf = st.session_state.data_buffer[-1] if st.session_state.data_buffer else {}
+    alert_mgr = render_alert_sidebar(
+        "user_app",
+        default_temp=float(latest_buf.get("temperature", 26.0)),
+        default_hum=float(latest_buf.get("humidity", 58.0)),
+    )
+
     if st.session_state.serial_error:
         st.error(f"Serial connection error: {st.session_state.serial_error}")
 
@@ -245,9 +253,16 @@ def main() -> None:
                 z_h = np.abs((feat_df["humidity"] - thresholds["normal_hum_mean"]) / thresholds["normal_hum_std"])
                 z_flag = ((z_t > z_th) | (z_h > z_th)).to_numpy()
                 hybrid_flag = if_flag | ez_flag
+                ewma_z_vals = ez
+                feat_df["ewma_z_score"] = ewma_z_vals
+                feat_df["hybrid_anomaly"] = hybrid_flag
                 latest_hybrid = bool(hybrid_flag[-1])
                 latest_if = bool(if_flag[-1])
                 latest_ez = bool(ez_flag[-1])
+                if st.session_state.is_collecting:
+                    dispatched = alert_mgr.process_latest(feat_df, live_mode=True)
+                    if dispatched is not None:
+                        st.toast(f"🔔 Employee Alert: {dispatched.event_type} ({dispatched.severity})")
 
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -320,6 +335,11 @@ def main() -> None:
             "text/csv",
             width='stretch',
         )
+
+    alert_hist = load_recent_alert_log(limit=15)
+    if alert_hist is not None and len(alert_hist) > 0:
+        with st.expander("🔔 Employee Alert History"):
+            st.dataframe(alert_hist, hide_index=True, width='stretch')
 
     st.divider()
     st.caption("IoT Sensor Monitor | ESP32 + DHT11 | Dungu Avinash Reddy")

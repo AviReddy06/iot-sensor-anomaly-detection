@@ -16,6 +16,7 @@ The unified pipeline separates raw immutable captures (`data/raw/`), runs dedupl
 
 ```text
 .
+├── alerts/                    # Non-blocking building-wide alert notifier (ntfy.sh, webhook, SMTP) & Streamlit panel
 ├── collect/                   # USB serial reader helpers, session logger, interactive event marker
 ├── dashboard/                 # Streamlit apps (Home.py + 3 pages, user_app.py, admin_app.py)
 ├── data/
@@ -32,8 +33,9 @@ The unified pipeline separates raw immutable captures (`data/raw/`), runs dedupl
 ├── preprocess/                # Reproducible cleaning, quarantine, holdout/eval suite builder, 02_data_preprocessing.ipynb
 ├── tests/                     # Automated pytest unit & integration tests (incl. Streamlit AppTest smoke suite)
 ├── train/                     # Model training, threshold calibration & full evaluation exporter
-├── config.yaml / config.py    # Single source of truth for serial, features, thresholds, and dashboard settings
-├── logger.py                  # Continuous ESP32 CSV logger writing safely to data/raw/
+├── config.yaml / config.py    # Single source of truth for serial, features, thresholds, alerts, and dashboard settings
+├── .env.example               # Template for optional alert secrets (copy to local gitignored .env)
+├── logger.py                  # Continuous ESP32 CSV logger + optional headless `--alert` monitor
 ├── PROJECT_PLAN.md            # Project architecture & milestone record
 └── tasks.md                   # Complete project upgrade & verification checklist
 ```
@@ -75,10 +77,20 @@ python -m streamlit run dashboard/admin_app.py --server.port 8503 --server.addre
 # Continuous logger to data/raw/live_session_log.csv (auto-detects COM port)
 python logger.py --port auto
 
+# Continuous logger WITH building-wide live employee alerts via ntfy.sh
+python logger.py --port auto --alert --ntfy-topic your-unique-building-topic --zone "Building A - Floor 1"
+
 # Timed capture + interactive event labeling
 python collect/collect_session.py auto data/raw/new_session.csv 120
 python collect/mark_events.py
 ```
+
+### Building-Wide Employee Alerts (`alerts/notifier.py`)
+
+When running live monitoring (`dashboard/user_app.py`, live mode in `dashboard/pages/1_Analyse.py` / `2_Results.py`, or `logger.py --alert`), detected anomalies broadcast automatically without blocking the 2s sampling loop:
+- **`ntfy.sh` Push (Default / Zero Keys):** Set `NTFY_TOPIC` in `.env` (see `.env.example`) or enter a topic in the **Employee Alerts** sidebar panel; anyone opening `https://ntfy.sh/<topic>` or subscribing in the `ntfy` mobile app receives alerts immediately.
+- **Slack / Discord / MS Teams & Email (Optional via `.env`):** Configure `ALERT_WEBHOOK_URL` and/or `ALERT_EMAIL_*` variables cleanly in `.env` (gitignored).
+- **Anti-Spam & Hysteresis:** Fires on episode transition (`Medium` / `High` by default, escalating sustained `Low` events after `15s`), enforces a `180s` cooldown, logs every incident to `logs/alert_history.csv`, sends an **"All Clear"** follow-up after `30s` recovery, and never triggers during offline Demo/CSV replay. Optional hard **AC / Building Comfort Guardrails** (`comfort_guardrails` in `config.yaml`) catch slow HVAC drift too.
 
 ## Methodology & Fixes Over v1 Baseline
 

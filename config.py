@@ -7,11 +7,34 @@ and Streamlit dashboards.
 """
 
 from pathlib import Path
+import os
 from typing import Any, Dict, Optional
 import yaml
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
+
+
+def load_dotenv(env_path: Optional[Path] = None) -> None:
+    """Load simple KEY=VALUE pairs from local .env without overriding shell variables."""
+    target = PROJECT_ROOT / ".env" if env_path is None else env_path
+    if not target.exists():
+        return
+    try:
+        for raw in target.read_text(encoding="utf-8", errors="ignore").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, val = line.split("=", 1)
+            key = key.strip()
+            val = val.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = val
+    except OSError:
+        pass
+
+
+load_dotenv()
 
 
 class Config:

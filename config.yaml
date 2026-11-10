@@ -74,3 +74,30 @@ dashboard:
   port: 8501
   refresh_interval_sec: 2
   buffer_maxlen: 500
+
+# Building-Wide Employee Alerts (keep secrets in local .env)
+alerts:
+  enabled: false              # Toggle live employee notifications (also controllable in UI / --alert)
+  building_zone: "Building A - Floor 1"
+  min_severity: "Medium"      # "Low", "Medium" (recommended), or "High"
+  cooldown_sec: 180           # Minimum seconds between employee alerts for ongoing events
+  recovery_sec: 30            # Continuous normal seconds before sending "All Clear" follow-up
+  sustained_sec: 15           # Escalate continuous Low anomaly to Medium after N seconds
+  send_recovery: true         # Notify when condition clears back to normal
+  log_file: "logs/alert_history.csv"
+  ntfy:
+    enabled: true
+    server: "https://ntfy.sh"
+    topic: ""                 # Set in .env (NTFY_TOPIC) or dashboard sidebar
+  webhook:
+    enabled: false            # Slack / Discord / Teams incoming webhook URL via ALERT_WEBHOOK_URL
+  email:
+    enabled: false            # SMTP broadcast via ALERT_EMAIL_* vars in .env
+    smtp_host: "smtp.gmail.com"
+    smtp_port: 587
+  comfort_guardrails:
+    enabled: false            # Optional hard office comfort limits (catches slow HVAC/AC failure)
+    temp_min: 18.0
+    temp_max: 31.0
+    hum_min: 25.0
+    hum_max: 75.0

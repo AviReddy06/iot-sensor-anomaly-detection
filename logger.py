@@ -1,104 +1,88 @@
 """
-logger.py - Log DHT11 temperature and humidity from ESP32 via serial port.
+logger.py - Continuous serial logger for ESP32 + DHT11 temperature & humidity.
 
 Usage:
-    python logger.py
-
-Press Ctrl+C to stop logging.
-
-Requirements:
-    - pyserial (pip install pyserial)
-    - ESP32 connected via USB, printing "temperature,humidity" lines at 115200 baud
-    - Arduino Serial Monitor MUST be closed before running this script
+    python logger.py [--port COM19] [--baud 115200] [--output data/raw/live_log.csv]
 """
 
-import serial
-import sys
+from __future__ import annotations
+
+import argparse
 from datetime import datetime
 from pathlib import Path
+import sys
 
-# ========== CONFIGURATION ==========
-# Change this to match your ESP32's COM port (check Device Manager on Windows)
-PORT = "COM19"
-BAUD = 115200
-# Output CSV file
-OUTPUT_FILE = Path("data/normal_data.csv")
-# ====================================
+from config import config
+from collect.serial_utils import detect_esp32_port, open_serial_port, parse_sensor_line
 
 
-def main():
-    # Create data directory if it doesn't exist
-    OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
+def run_logger(port: str, baud: int, output_file: Path) -> None:
+    """Append validated ESP32 readings with CSV headers into output_file."""
+    if port.lower() == "auto":
+        port = detect_esp32_port(config.serial_port)
 
-    # Check if file exists and is empty to decide whether to write header
-    write_header = not OUTPUT_FILE.exists() or OUTPUT_FILE.stat().st_size == 0
+    output_file.parent.mkdir(parents=True, exist_ok=True)
+    write_header = not output_file.exists() or output_file.stat().st_size == 0
 
-    # Open serial port
     try:
-        ser = serial.Serial(PORT, BAUD, timeout=1)
-        print(f"Connected to {PORT} at {BAUD} baud")
-        print(f"Logging to {OUTPUT_FILE}")
+        ser = open_serial_port(port, baudrate=baud, timeout=config.serial_timeout)
+        print(f"Connected to {port} at {baud} baud")
+        print(f"Logging to {output_file}")
         print("Press Ctrl+C to stop\n")
-    except serial.SerialException as e:
-        print(f"ERROR: Could not open serial port {PORT}")
-        print(f"  Reason: {e}")
+    except Exception as exc:
+        print(f"ERROR: Could not open serial port {port}: {exc}")
         print("\nChecklist:")
-        print("  1. Is the ESP32 connected via USB?")
-        print("  2. Is the COM port correct? (Check Windows Device Manager)")
-        print("  3. Is Arduino Serial Monitor CLOSED? (It locks the port)")
-        print("  4. Is the ESP32 sketch running and printing data?")
+        print("  1. ESP32 connected via USB")
+        print("  2. Correct COM port (check Device Manager)")
+        print("  3. Arduino Serial Monitor CLOSED")
         sys.exit(1)
 
-    # Open CSV file in append mode
-    with OUTPUT_FILE.open("a", newline="") as f:
+    last_ts: str | None = None
+    with output_file.open("a", newline="", encoding="utf-8") as f:
         if write_header:
             f.write("timestamp,temperature,humidity\n")
             f.flush()
 
         try:
             while True:
-                # Read one line from serial port
                 line_bytes = ser.readline()
                 if not line_bytes:
-                    continue  # timeout, no data yet
-
-                # Decode and clean
-                line = line_bytes.decode("utf-8", errors="ignore").strip()
-
-                # Skip empty lines
-                if not line:
                     continue
 
-                # Skip header line from ESP32 (if it prints one)
-                if line.lower().startswith("temperature") or line.lower().startswith("humidity"):
+                raw_line = line_bytes.decode("utf-8", errors="ignore")
+                parsed = parse_sensor_line(raw_line)
+                if parsed is None:
                     continue
 
-                # Split on comma
-                parts = line.split(",")
-                if len(parts) != 2:
-                    continue  # malformed line
-
-                # Convert to float
-                try:
-                    temperature = float(parts[0])
-                    humidity = float(parts[1])
-                except ValueError:
-                    continue  # not numeric
-
-                # Create timestamp and write row
+                temperature, humidity = parsed
                 timestamp = datetime.now().isoformat(timespec="seconds")
-                row = f"{timestamp},{temperature},{humidity}\n"
+                if timestamp == last_ts:
+                    continue
+                last_ts = timestamp
+
+                row = f"{timestamp},{temperature:.2f},{humidity:.2f}\n"
                 f.write(row)
-                f.flush()  # ensure data is written immediately
-
-                # Print to terminal
+                f.flush()
                 print(f"Saved: {row.strip()}")
-
         except KeyboardInterrupt:
             print("\nStopped by user (Ctrl+C)")
         finally:
             ser.close()
             print("Serial port closed")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Continuous ESP32 + DHT11 CSV logger.")
+    parser.add_argument("--port", default="auto", help="COM port or 'auto'")
+    parser.add_argument("--baud", type=int, default=config.baudrate, help="Serial baudrate")
+    parser.add_argument(
+        "--output",
+        type=Path,
+        default=config.raw_dir / "live_session_log.csv",
+        help="Destination CSV path (default: data/raw/live_session_log.csv)",
+    )
+    args = parser.parse_args()
+    run_logger(args.port, args.baud, args.output)
 
 
 if __name__ == "__main__":

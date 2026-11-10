@@ -25,11 +25,13 @@ The DHT11 is a basic, ultra-low-cost digital temperature and humidity sensor.
 | Temperature accuracy | ±2°C |
 | Humidity range | 20–90% RH |
 | Humidity accuracy | ±5% RH |
-| Resolution | 1°C / 1% RH |
+| Resolution | 1°C / 1% RH datasheet nominal (`0.1` decimal step observed on module library output) |
 | Sampling rate | ≤ 1 Hz (minimum 1–2 sec between reads) |
 | Operating voltage | 3.3V – 5.5V |
 | Signal | Single-wire digital protocol |
 | Pull-up | Required on data line (typically 4.7kΩ–10kΩ) |
+
+> **Hardware Verification Status (2026-11-10):** Verified live on Windows **`COM19`** at **`115200` baud** with `firmware/esp32_dht11/esp32_dht11.ino`. Valid `temperature,humidity\n` lines streamed at ~0.5 Hz (`28.10–29.60°C`, `53.70–59.80% RH`) and passed physical bounds guards (`-10..65°C`, `0..100% RH`).
 
 ---
 
@@ -73,7 +75,7 @@ Pin 3 (GND)   ─── GND
 - **Pull-up typically INCLUDED** on module PCB
 - No external resistor needed
 
-**Action required:** Look at your hardware. Is it a bare blue/white 4-pin sensor, or a small PCB with 3 pins and possibly an SMD resistor? Confirm before finalizing wiring.
+**Hardware Confirmed (2026-11-10):** ESP32 + DHT11 module on GPIO 4, live-verified on Windows `COM19` at `115200` baud (`0.1°C` / `0.1% RH` decimal resolution output at 2s intervals).
 
 ---
 
@@ -205,8 +207,6 @@ Install via **Arduino IDE → Library Manager**:
 
 ## Notes for Python Integration
 
-- Python `logger.py` expects: `temperature,humidity\n` (two floats, comma-separated)
-- Firmware outputs exactly this format via `Serial.printf("%.2f,%.2f\n", temp, hum)`
-- Python adds its own timestamp on receipt (ISO format)
-- First line "temperature,humidity" is skipped by logger (header handling)
-- If logger misses data, check: COM port, baud rate, Serial Monitor closed
+- Shared utilities in `collect/serial_utils.py` validate `temperature,humidity\n` lines, skip boot/header banners, and enforce physical bounds from `config.yaml` (`-10..65°C`, `0..100% RH`).
+- `open_serial_port()` disables `DTR`/`RTS` assertions prior to opening the port so opening Python readers or dashboards does not reboot the ESP32.
+- Python adds its own ISO timestamp on receipt (`datetime.now().isoformat(timespec="seconds")`) and collapses duplicate same-second buffer bursts.

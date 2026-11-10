@@ -15,7 +15,7 @@
 - Deployment: Windows PC — Python application handles data processing, ML inference, dashboard
 - ESP32 responsibility: Sensor acquisition only
 
-**Current State:** Data collection pipeline working. Three datasets collected. No ML, no dashboard, no ESP32 code in repo.
+**Current State (Completed 2026-11-10):** End-to-end production pipeline implemented, hardware-verified on ESP32 + DHT11 (`COM19` @ `115200` baud), automated tests passing (`tests/`), and benchmarks recorded in `models/evaluation_summary.json` (see `README.md` and `tasks.md` for live architecture and metrics). *(Historical planning draft retained below for reference.)*
 
 ---
 

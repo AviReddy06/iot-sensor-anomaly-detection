@@ -99,36 +99,21 @@ if (!isnan(temperature) && !isnan(humidity)) {
 
 ## Python Logger Parsing
 
-File: `logger.py` (project root)
+Shared serial utilities live in [`collect/serial_utils.py`](../collect/serial_utils.py) and are used by [`logger.py`](../logger.py), [`collect/collect_session.py`](../collect/collect_session.py), and the live Streamlit dashboards (`user_app.py`, `pages/1_Analyse.py`).
 
-### Parsing Logic
+### Opening Serial Safely & Validation Rules
 ```python
-line = line_bytes.decode("utf-8", errors="ignore").strip()
+ser = open_serial_port(port, baudrate=baud, timeout=1.0)
+# Sets ser.dtr = False and ser.rts = False BEFORE open() so USB-UART bridges
+# do not reset the ESP32 into bootloader banner output mid-stream.
 
-# Skip empty lines
-if not line:
-    continue
-
-# Skip header from ESP32
-if line.lower().startswith("temperature") or line.lower().startswith("humidity"):
-    continue
-
-# Split on comma
-parts = line.split(",")
-if len(parts) != 2:
-    continue  # malformed line
-
-# Convert to float
-try:
-    temperature = float(parts[0])
-    humidity = float(parts[1])
-except ValueError:
-    continue  # not numeric
-
-# Add timestamp and write CSV
-timestamp = datetime.now().isoformat(timespec="seconds")
-row = f"{timestamp},{temperature},{humidity}\n"
+parsed = parse_sensor_line(raw_line)
+# 1. Strips whitespace and ignores boot/header prefixes ("temperature", "ets ", "rst:", ...)
+# 2. Enforces 2 comma-separated finite floats
+# 3. Enforces physical DHT11/operating sanity bounds from config.yaml (-10..65 C, 0..100% RH)
 ```
+
+Live collection also deduplicates identical second-level timestamps (`if timestamp == last_ts: continue`) to guard against OS USB serial buffer bursts.
 
 ### Compatibility Requirements
 The firmware output **must** match these expectations:
@@ -198,6 +183,7 @@ To confirm firmware/logger compatibility:
 | Version | Date | Changes |
 |---------|------|---------|
 | 1.0 | 2026-11-03 | Initial: temperature,humidity CSV at 115200 baud |
+| 1.1 | 2026-11-10 | Hardware-verified on Windows `COM19`; added DTR/RTS safe open, physical bounds check, and burst-timestamp guard in `collect/serial_utils.py` & firmware bounds guard |
 
 **Future changes** (if needed) should:
 - Increment version in this document

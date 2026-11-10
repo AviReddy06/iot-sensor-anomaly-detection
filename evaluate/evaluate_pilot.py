@@ -1,178 +1,102 @@
-# evaluate/evaluate_pilot.py
-# Evaluate saved models on pilot data
-# Simple sequential code, no classes or lambda, comment above every step
+#!/usr/bin/env python3
+"""
+evaluate/evaluate_pilot.py
+Evaluate saved production models on the pilot dataset with verified event annotations.
+"""
 
-import pandas as pd
-import numpy as np
-import joblib
+from __future__ import annotations
+
 import json
 from pathlib import Path
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+import sys
+from typing import Dict
 
-# 1. Load data and models
-pilot = pd.read_csv('data/processed/features_v2/pilot_features_full.csv')
-pilot['timestamp'] = pd.to_datetime(pilot['timestamp'])
-pilot = pilot.sort_values('timestamp', kind='stable').reset_index(drop=True)
-print(f'Loaded pilot: {len(pilot)} rows, {pilot["session_id"].nunique()} sessions')
-print(f'Time range: {pilot["timestamp"].min()} to {pilot["timestamp"].max()}')
-print()
+import joblib
+import numpy as np
+import pandas as pd
+from sklearn.metrics import average_precision_score, confusion_matrix, precision_recall_fscore_support, roc_auc_score
 
-# Load models and thresholds
-iso = joblib.load('models/iforest.joblib')
-scaler = joblib.load('models/scaler.joblib')
-with open('models/thresholds.json', 'r') as f:
-    thresholds = json.load(f)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# Load pilot event annotations
-annotations = pd.read_csv('data/processed/pilot_event_annotations.csv')
-annotations['start_time'] = pd.to_datetime(annotations['start_time'])
-annotations['end_time'] = pd.to_datetime(annotations['end_time'])
-print('Event annotations:')
-print(annotations[['event_id', 'start_time', 'end_time', 'duration_seconds', 'num_rows']].to_string())
-print()
+from config import config
+from features.feature_engine import (
+    MODEL_FEATURE_COLS,
+    apply_gated_persistence,
+    compute_adaptive_ewma_z,
+)
 
-# 2. Build row-level label: 1 if timestamp between any event's start and end (inclusive)
-labels = pd.Series(0, index=pilot.index, dtype=int)
-for _, row in annotations.iterrows():
-    mask = (pilot['timestamp'] >= row['start_time']) & (pilot['timestamp'] <= row['end_time'])
-    labels[mask] = 1
 
-print('Label distribution:')
-print(labels.value_counts().sort_index())
-print()
+def evaluate_pilot() -> Dict[str, dict]:
+    """Run standardized evaluation on pilot_features_full.csv + pilot_event_annotations.csv."""
+    pilot = pd.read_csv(config.features_dir / "pilot_features_full.csv")
+    pilot["timestamp"] = pd.to_datetime(pilot["timestamp"])
+    pilot = pilot.sort_values("timestamp", kind="stable").reset_index(drop=True)
 
-# 3. Predictions - NO TUNING
-feature_cols = thresholds['feature_cols']
+    annotations = pd.read_csv(config.processed_dir / "pilot_event_annotations.csv")
+    annotations["start_time"] = pd.to_datetime(annotations["start_time"])
+    annotations["end_time"] = pd.to_datetime(annotations["end_time"])
 
-# IF predictions
-pilot_features = pilot[feature_cols].copy()
-pilot_scaled = scaler.transform(pilot_features)
-pilot_scores = iso.decision_function(pilot_scaled)
-iforest_threshold = thresholds['iforest_threshold']
-iforest_flag = pilot_scores < iforest_threshold
+    iso = joblib.load(config.model_dir / "iforest.joblib")
+    scaler = joblib.load(config.model_dir / "scaler.joblib")
+    with open(config.model_dir / "thresholds.json", "r", encoding="utf-8") as f:
+        thresholds = json.load(f)
 
-# Z-score predictions
-z_temp = np.abs((pilot['temperature'] - thresholds['normal_temp_mean']) / thresholds['normal_temp_std'])
-z_hum = np.abs((pilot['humidity'] - thresholds['normal_hum_mean']) / thresholds['normal_hum_std'])
-zscore_threshold = thresholds['zscore_threshold']
-zscore_flag = (z_temp > zscore_threshold) | (z_hum > zscore_threshold)
+    feature_cols = thresholds.get("feature_cols", MODEL_FEATURE_COLS)
+    labels = np.zeros(len(pilot), dtype=int)
+    for _, row in annotations.iterrows():
+        mask = (pilot["timestamp"] >= row["start_time"]) & (pilot["timestamp"] <= row["end_time"])
+        labels[mask] = 1
 
-# 4. Metrics for both methods
-y_true = labels.values
+    print(f"Loaded pilot: {len(pilot)} rows | Positives: {int(labels.sum())} | Events: {len(annotations)}")
 
-# Isolation Forest
-cm_if = confusion_matrix(y_true, iforest_flag)
-prec_if, rec_if, f1_if, _ = precision_recall_fscore_support(y_true, iforest_flag, average='binary', zero_division=0)
+    X_scaled = scaler.transform(pilot[feature_cols])
+    if_scores = iso.decision_function(X_scaled)
+    if_raw = if_scores < thresholds["iforest_threshold"]
+    if_flag = apply_gated_persistence(if_raw, pilot["session_id"].to_numpy(), features_df=pilot)
 
-print('=== ISOLATION FOREST ===')
-print(f'Confusion matrix (TN, FP, FN, TP): {cm_if[0,0]}, {cm_if[0,1]}, {cm_if[1,0]}, {cm_if[1,1]}')
-print(f'Precision: {prec_if:.4f}')
-print(f'Recall: {rec_if:.4f}')
-print(f'F1: {f1_if:.4f}')
-print()
+    ewma_z = compute_adaptive_ewma_z(pilot, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"])
+    ewma_flag = ewma_z > thresholds["ewma_zscore_threshold"]
 
-# Z-score
-cm_z = confusion_matrix(y_true, zscore_flag)
-prec_z, rec_z, f1_z, _ = precision_recall_fscore_support(y_true, zscore_flag, average='binary', zero_division=0)
+    z_t = np.abs((pilot["temperature"] - thresholds["normal_temp_mean"]) / thresholds["normal_temp_std"])
+    z_h = np.abs((pilot["humidity"] - thresholds["normal_hum_mean"]) / thresholds["normal_hum_std"])
+    z_score_val = np.maximum(z_t.to_numpy(dtype=float), z_h.to_numpy(dtype=float))
+    z_flag = z_score_val > thresholds["zscore_threshold"]
 
-print('=== Z-SCORE ===')
-print(f'Confusion matrix (TN, FP, FN, TP): {cm_z[0,0]}, {cm_z[0,1]}, {cm_z[1,0]}, {cm_z[1,1]}')
-print(f'Precision: {prec_z:.4f}')
-print(f'Recall: {rec_z:.4f}')
-print(f'F1: {f1_z:.4f}')
-print()
+    hybrid_flag = if_flag | ewma_flag
 
-# Per-event breakdown
-print('=== PER-EVENT RECALL ===')
-for _, row in annotations.iterrows():
-    start = row['start_time']
-    end = row['end_time']
-    mask = (pilot['timestamp'] >= start) & (pilot['timestamp'] <= end)
-    event_indices = pilot.index[mask]
-    if len(event_indices) > 0:
-        if_caught = iforest_flag[event_indices].sum()
-        z_caught = zscore_flag[event_indices].sum()
-        print(f'Event {int(row["event_id"])} ({start} to {end}): {len(event_indices)} rows | IF caught: {if_caught} | Z-score caught: {z_caught}')
-print()
+    results: Dict[str, dict] = {}
+    print("\n=== PILOT EVALUATION RESULTS ===")
+    for name, pred, cont in [
+        ("Z-Score Baseline", z_flag, z_score_val),
+        ("Adaptive EWMA-Z", ewma_flag, ewma_z),
+        ("Isolation Forest", if_flag, -if_scores),
+        ("Hybrid (IF + EWMA-Z)", hybrid_flag, np.maximum(ewma_z, np.clip((-if_scores + thresholds["iforest_threshold"]) * 15.0 + 3.5, 0, 20))),
+    ]:
+        cm = confusion_matrix(labels, pred, labels=[0, 1])
+        p, r, f1, _ = precision_recall_fscore_support(labels, pred, average="binary", zero_division=0)
+        pr = average_precision_score(labels, cont)
+        roc = roc_auc_score(labels, cont)
+        print(
+            f"  {name:22s} | TN={cm[0,0]:4d} FP={cm[0,1]:3d} FN={cm[1,0]:3d} TP={cm[1,1]:3d} "
+            f"| P={p:.3f} R={r:.3f} F1={f1:.3f} PR-AUC={pr:.3f} ROC-AUC={roc:.3f}"
+        )
+        results[name] = {"precision": float(p), "recall": float(r), "f1": float(f1), "fp": int(cm[0, 1]), "fn": int(cm[1, 0])}
 
-# 5. False positive split
-# (a) within 14 rows after an event ends
-# (b) elsewhere
+    print("\n=== PER-EVENT RECALL ===")
+    for _, row in annotations.iterrows():
+        mask = (pilot["timestamp"] >= row["start_time"]) & (pilot["timestamp"] <= row["end_time"])
+        idx = np.where(mask)[0]
+        if len(idx) > 0:
+            print(
+                f"  Event {int(row['event_id'])} ({row['start_time']} -> {row['end_time']}, {len(idx)} rows): "
+                f"Z={int(z_flag[idx].sum())}/{len(idx)} | IF={int(if_flag[idx].sum())}/{len(idx)} "
+                f"| EWMA-Z={int(ewma_flag[idx].sum())}/{len(idx)} | Hybrid={int(hybrid_flag[idx].sum())}/{len(idx)}"
+            )
 
-# Find the last row index of each event in the sorted pilot dataframe
-event_end_indices = []
-for _, row in annotations.iterrows():
-    end = row['end_time']
-    # Last row with timestamp <= end
-    mask = pilot['timestamp'] <= end
-    if mask.any():
-        event_end_indices.append(pilot.index[mask].max())
+    return results
 
-# Rows within 14 rows after any event end
-within_14_after = set()
-for end_idx in event_end_indices:
-    next_14 = pilot.index[(pilot.index > end_idx) & (pilot.index <= end_idx + 14)]
-    within_14_after.update(next_14)
 
-# False positives
-if_fp = iforest_flag & (y_true == 0)
-z_fp = zscore_flag & (y_true == 0)
-
-# Split
-if_fp_a = if_fp & pilot.index.isin(within_14_after)
-if_fp_b = if_fp & (~pilot.index.isin(within_14_after))
-z_fp_a = z_fp & pilot.index.isin(within_14_after)
-z_fp_b = z_fp & (~pilot.index.isin(within_14_after))
-
-print('=== FALSE POSITIVE SPLIT ===')
-print(f'Isolation Forest:')
-print(f'  Total FP: {if_fp.sum()}')
-print(f'  Group (a) within 14 rows after event: {if_fp_a.sum()}')
-print(f'  Group (b) elsewhere: {if_fp_b.sum()}')
-
-print(f'Z-score:')
-print(f'  Total FP: {z_fp.sum()}')
-print(f'  Group (a) within 14 rows after event: {z_fp_a.sum()}')
-print(f'  Group (b) elsewhere: {z_fp_b.sum()}')
-print()
-
-# Group (b) stats for both methods
-for name, fp_b in [('IF', if_fp_b), ('Z-score', z_fp_b)]:
-    if fp_b.sum() > 0:
-        subset = pilot[fp_b]
-        mean_hum = subset['humidity'].mean()
-        share_below_55 = (subset['humidity'] < 55).mean()
-        print(f'{name} Group (b): {fp_b.sum()} rows, mean humidity={mean_hum:.2f}, share <55%={share_below_55:.2%}')
-    else:
-        print(f'{name} Group (b): 0 rows')
-print()
-
-# 6. Sanity check on earlier audit: normal data change feature distributions
-normal = pd.read_csv('data/processed/features_v2/normal_features_full.csv')
-print('=== NORMAL DATA CHANGE FEATURE DISTRIBUTIONS (info only) ===')
-print()
-
-for col in ['temperature_change', 'humidity_change']:
-    print(f'{col}:')
-    vc = normal[col].value_counts().head(10)
-    print(f'  Top 10 values:')
-    for val, cnt in vc.items():
-        print(f'    {val:.4f}: {cnt}')
-    print(f'  Distinct values: {normal[col].nunique()}')
-    print()
-
-# Robust z-score recomputation for normal data
-for col in ['temperature_change', 'humidity_change']:
-    median = normal[col].median()
-    mad = np.median(np.abs(normal[col] - median))
-    if mad == 0:
-        mad = 1e-10
-    scale = 1.4826 * mad
-    robust_z = (normal[col] - median) / scale
-    
-    for thresh in [5, 8, 12]:
-        count = (robust_z.abs() > thresh).sum()
-        print(f'  {col}: abs(robust z) > {thresh} -> {count} rows ({count/len(normal)*100:.2f}%)')
-    print()
-
-print('=== DONE ===')
+if __name__ == "__main__":
+    evaluate_pilot()

@@ -1,235 +1,360 @@
-# Train models on session-aware features
-# Simple sequential code, no classes, no lambda, no functions
-# Every step has a comment explaining what and why
+#!/usr/bin/env python3
+"""
+train/train_models.py
+Train anomaly detection models strictly on cleaned normal baseline features,
+calibrate sensitivity thresholds, compare multi-model performance, and serialize artifacts.
+"""
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
+from datetime import datetime, timezone
 import json
-import joblib
 from pathlib import Path
+import sys
+from typing import Any, Dict, List, Tuple
+
+import joblib
+import numpy as np
+import pandas as pd
 from sklearn.ensemble import IsolationForest
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix, precision_recall_fscore_support
+from sklearn.metrics import (
+    average_precision_score,
+    confusion_matrix,
+    precision_recall_fscore_support,
+    roc_auc_score,
+)
+from sklearn.neighbors import LocalOutlierFactor
+from sklearn.preprocessing import RobustScaler, StandardScaler
+from sklearn.svm import OneClassSVM
 
-# a. Load data and define 14 feature columns
-# Load normal training features (no labels)
-normal = pd.read_csv('data/processed/features_v2/normal_features.csv')
-# Load test features full (has label column)
-test_full = pd.read_csv('data/processed/features_v2/test_features_full.csv')
-# Load pilot features (no labels)
-pilot = pd.read_csv('data/processed/features_v2/pilot_features.csv')
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-# The 14 feature columns by name (all columns in normal_features.csv are features)
-feature_cols = list(normal.columns)
-print('Feature columns (14):', feature_cols)
-print('Normal shape:', normal.shape)
-print('Test shape:', test_full.shape)
-print('Pilot shape:', pilot.shape)
-print()
+from config import config
+from features.feature_engine import (
+    MODEL_FEATURE_COLS,
+    apply_gated_persistence,
+    compute_adaptive_ewma_z,
+)
 
-# Separate test features and labels
-test_features = test_full[feature_cols].copy()
-test_labels = test_full['label'].copy()
-print('Test label distribution:', test_labels.value_counts().to_dict())
-print()
 
-# b. Z-SCORE BASELINE on raw temperature and humidity
-# Compute mean and std from NORMAL data only
-normal_temp_mean = normal['temperature'].mean()
-normal_temp_std = normal['temperature'].std()
-normal_hum_mean = normal['humidity'].mean()
-normal_hum_std = normal['humidity'].std()
+def extract_true_events(y_true: np.ndarray) -> List[Tuple[int, int]]:
+    """Return contiguous inclusive index intervals (start, end) where y_true == 1."""
+    events: List[Tuple[int, int]] = []
+    in_event = False
+    start = 0
+    for i, val in enumerate(y_true):
+        if val == 1 and not in_event:
+            in_event = True
+            start = i
+        elif val == 0 and in_event:
+            in_event = False
+            events.append((start, i - 1))
+    if in_event:
+        events.append((start, len(y_true) - 1))
+    return events
 
-print('Z-score thresholds from normal data:')
-print('  temperature: mean=', normal_temp_mean, 'std=', normal_temp_std)
-print('  humidity: mean=', normal_hum_mean, 'std=', normal_hum_std)
-print()
 
-# Flag a row if abs(z) > 3 in EITHER column
-def zscore_flag(df):
-    z_temp = np.abs((df['temperature'] - normal_temp_mean) / normal_temp_std)
-    z_hum = np.abs((df['humidity'] - normal_hum_mean) / normal_hum_std)
-    return (z_temp > 3) | (z_hum > 3)
+def compute_metrics(
+    y_true: np.ndarray,
+    y_pred: np.ndarray,
+    continuous_score: np.ndarray,
+) -> Dict[str, Any]:
+    """Compute row-level and event-level classification metrics."""
+    y_true_arr = np.asarray(y_true, dtype=int)
+    y_pred_arr = np.asarray(y_pred, dtype=int)
+    cm = confusion_matrix(y_true_arr, y_pred_arr, labels=[0, 1])
+    tn, fp, fn, tp = (int(cm[0, 0]), int(cm[0, 1]), int(cm[1, 0]), int(cm[1, 1]))
+    prec, rec, f1, _ = precision_recall_fscore_support(
+        y_true_arr, y_pred_arr, average="binary", zero_division=0
+    )
 
-# Apply to test
-test_zscore_flag = zscore_flag(test_features)
-print('Z-score flags on test: normal flagged=', test_zscore_flag.sum(), 'out of', len(test_features))
-print()
+    try:
+        pr_auc = float(average_precision_score(y_true_arr, continuous_score))
+        roc_auc = float(roc_auc_score(y_true_arr, continuous_score))
+    except ValueError:
+        pr_auc = 0.0
+        roc_auc = 0.0
 
-# c. ISOLATION FOREST
-# Fit StandardScaler on normal only
-scaler = StandardScaler()
-normal_scaled = scaler.fit_transform(normal)
-test_scaled = scaler.transform(test_features)
-pilot_scaled = scaler.transform(pilot)
+    # Event-level evaluation
+    true_events = extract_true_events(y_true_arr)
+    events_caught = sum(1 for s, e in true_events if y_pred_arr[s : e + 1].any())
 
-# IsolationForest on scaled normal only
-iso = IsolationForest(n_estimators=200, random_state=42, contamination='auto')
-iso.fit(normal_scaled)
+    # Count false-alarm episodes in y_true == 0 regions (merging gaps <= 5 rows)
+    fa_episodes = 0
+    in_fa = False
+    gap_count = 0
+    for yt, yp in zip(y_true_arr, y_pred_arr):
+        if yt == 0 and yp == 1:
+            if not in_fa:
+                fa_episodes += 1
+                in_fa = True
+            gap_count = 0
+        else:
+            if in_fa:
+                gap_count += 1
+                if gap_count > 5 or yt == 1:
+                    in_fa = False
 
-# Threshold = 1st percentile of decision_function on normal training data
-# This is set BEFORE touching test results
-normal_scores = iso.decision_function(normal_scaled)
-iforest_threshold = np.percentile(normal_scores, 1)
-print('Isolation Forest threshold (1st percentile of normal scores):', iforest_threshold)
-print()
+    return {
+        "rows": int(len(y_true_arr)),
+        "positives": int((y_true_arr == 1).sum()),
+        "tp": tp,
+        "fp": fp,
+        "fn": fn,
+        "tn": tn,
+        "precision": round(float(prec), 4),
+        "recall": round(float(rec), 4),
+        "f1": round(float(f1), 4),
+        "pr_auc": round(pr_auc, 4),
+        "roc_auc": round(roc_auc, 4),
+        "events_total": int(len(true_events)),
+        "events_caught": int(events_caught),
+        "event_recall": round(float(events_caught / len(true_events)), 4) if true_events else 1.0,
+        "false_alarm_episodes": int(fa_episodes),
+    }
 
-# Sensitivity table (0.5, 1, 2, 5 percentile) - NOT USED FOR ANY DECISION
-print('Sensitivity table (NOT USED FOR ANY DECISION):')
-for p in [0.5, 1, 2, 5]:
-    thresh = np.percentile(normal_scores, p)
-    print(f'  {p}th percentile: {thresh}')
-print()
 
-# Flag if score < threshold
-test_iforest_scores = iso.decision_function(test_scaled)
-test_iforest_flag = test_iforest_scores < iforest_threshold
-print('Isolation Forest flags on test: normal flagged=', test_iforest_flag.sum(), 'out of', len(test_features))
-print()
+def evaluate_all_models_on_df(
+    df: pd.DataFrame,
+    y_true: np.ndarray,
+    scaler: Any,
+    iso: IsolationForest,
+    ocsvm: OneClassSVM,
+    lof: LocalOutlierFactor,
+    thresholds: Dict[str, Any],
+) -> Dict[str, Dict[str, Any]]:
+    """Run standardized comparison across all unsupervised detectors."""
+    X_scaled = scaler.transform(df[MODEL_FEATURE_COLS])
+    sess = df["session_id"].to_numpy()
 
-# d. EVALUATE both methods on test set
-# True labels: 1 = anomaly, 0 = normal
-y_true = test_labels.values
+    # 1. Raw Z-Score Baseline
+    z_temp = np.abs((df["temperature"] - thresholds["normal_temp_mean"]) / thresholds["normal_temp_std"])
+    z_hum = np.abs((df["humidity"] - thresholds["normal_hum_mean"]) / thresholds["normal_hum_std"])
+    z_score_val = np.maximum(z_temp.to_numpy(dtype=float), z_hum.to_numpy(dtype=float))
+    z_flag = z_score_val > thresholds["zscore_threshold"]
 
-# Z-score evaluation
-cm_z = confusion_matrix(y_true, test_zscore_flag)
-print('=== Z-SCORE EVALUATION ===')
-print('Confusion matrix (rows=true, cols=pred):')
-print(cm_z)
-prec_z, rec_z, f1_z, _ = precision_recall_fscore_support(y_true, test_zscore_flag, average='binary')
-print(f'Precision: {prec_z:.4f}')
-print(f'Recall: {rec_z:.4f}')
-print(f'F1: {f1_z:.4f}')
-print()
+    # 2. Adaptive Gated EWMA-Z
+    ewma_z = compute_adaptive_ewma_z(df, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"])
+    ewma_flag = ewma_z > thresholds["ewma_zscore_threshold"]
 
-# Isolation Forest evaluation
-cm_if = confusion_matrix(y_true, test_iforest_flag)
-print('=== ISOLATION FOREST EVALUATION ===')
-print('Confusion matrix (rows=true, cols=pred):')
-print(cm_if)
-prec_if, rec_if, f1_if, _ = precision_recall_fscore_support(y_true, test_iforest_flag, average='binary')
-print(f'Precision: {prec_if:.4f}')
-print(f'Recall: {rec_if:.4f}')
-print(f'F1: {f1_if:.4f}')
-print()
+    # 3. Isolation Forest (raw & gated persistence)
+    if_scores = iso.decision_function(X_scaled)
+    if_raw_flag = if_scores < thresholds["iforest_threshold"]
+    if_pers_flag = apply_gated_persistence(if_raw_flag, sess, features_df=df)
 
-# List the 10 true-anomaly timestamps and whether each method caught them
-print('=== TRUE ANOMALY TIMESTAMPS ===')
-anomaly_indices = np.where(y_true == 1)[0]
-anomaly_timestamps = test_full.iloc[anomaly_indices]['timestamp'].values
-for i, (idx, ts) in enumerate(zip(anomaly_indices, anomaly_timestamps)):
-    z_caught = bool(test_zscore_flag[idx])
-    if_caught = bool(test_iforest_flag[idx])
-    print(f'  {i+1}. {ts} | z-score: {"CAUGHT" if z_caught else "MISSED"} | iforest: {"CAUGHT" if if_caught else "MISSED"}')
-print()
+    # 4. Hybrid Ensemble (IF with Persistence OR Adaptive EWMA-Z)
+    hybrid_flag = if_pers_flag | ewma_flag
+    hybrid_cont = np.maximum(
+        np.clip((-if_scores + thresholds["iforest_threshold"]) * 15.0 + 3.5, 0.0, 20.0),
+        ewma_z,
+    )
 
-# False alarms in TWO groups:
-# (i) label-0 rows within 14 rows after the last anomaly row (rolling window contamination)
-# (ii) all other label-0 rows
-last_anomaly_idx = anomaly_indices[-1]
-print(f'Last anomaly index in test: {last_anomaly_idx} (timestamp: {anomaly_timestamps[-1]})')
-print('Window of 14 rows after last anomaly: indices', last_anomaly_idx+1, 'to', min(last_anomaly_idx+14, len(test_features)-1))
+    # 5. One-Class SVM
+    svm_scores = ocsvm.decision_function(X_scaled)
+    svm_flag = svm_scores < thresholds["ocsvm_threshold"]
 
-# Group (i): label-0 rows within 14 rows after last anomaly
-window_start = last_anomaly_idx + 1
-window_end = min(last_anomaly_idx + 14, len(test_features) - 1)
-window_mask = (np.arange(len(test_features)) >= window_start) & (np.arange(len(test_features)) <= window_end)
-label0_mask = (y_true == 0)
+    # 6. Local Outlier Factor (novelty=True)
+    lof_scores = lof.decision_function(X_scaled)
+    lof_flag = lof_scores < thresholds["lof_threshold"]
 
-group1_mask = window_mask & label0_mask
-group2_mask = label0_mask & (~window_mask)
+    return {
+        "Z-Score Baseline": compute_metrics(y_true, z_flag, z_score_val),
+        "Adaptive EWMA-Z": compute_metrics(y_true, ewma_flag, ewma_z),
+        "Isolation Forest (Raw)": compute_metrics(y_true, if_raw_flag, -if_scores),
+        "Isolation Forest": compute_metrics(y_true, if_pers_flag, -if_scores),
+        "Hybrid (IF + EWMA-Z)": compute_metrics(y_true, hybrid_flag, hybrid_cont),
+        "One-Class SVM": compute_metrics(y_true, svm_flag, -svm_scores),
+        "LOF (Novelty)": compute_metrics(y_true, lof_flag, -lof_scores),
+    }
 
-print()
-print('=== FALSE ALARM GROUPS ===')
-print('Group (i) - label-0 within 14 rows after last anomaly:', group1_mask.sum(), 'rows')
-print('Group (ii) - all other label-0 rows:', group2_mask.sum(), 'rows')
-print()
 
-# False alarms per method
-z_false_g1 = test_zscore_flag[group1_mask].sum()
-z_false_g2 = test_zscore_flag[group2_mask].sum()
-if_false_g1 = test_iforest_flag[group1_mask].sum()
-if_false_g2 = test_iforest_flag[group2_mask].sum()
+def train_and_evaluate() -> Dict[str, Any]:
+    """Train production models on clean normal data and save artifacts + benchmarks."""
+    feat_dir = config.features_dir
+    proc_dir = config.processed_dir
+    models_dir = config.model_dir
+    models_dir.mkdir(parents=True, exist_ok=True)
 
-print('Z-score false alarms:')
-print(f'  Group (i): {z_false_g1}')
-print(f'  Group (ii): {z_false_g2}')
-print(f'  Total: {z_false_g1 + z_false_g2}')
-print()
-print('Isolation Forest false alarms:')
-print(f'  Group (i): {if_false_g1}')
-print(f'  Group (ii): {if_false_g2}')
-print(f'  Total: {if_false_g1 + if_false_g2}')
-print()
+    normal_full = pd.read_csv(feat_dir / "normal_features_full.csv")
+    normal_full["timestamp"] = pd.to_datetime(normal_full["timestamp"])
+    X_normal = normal_full[MODEL_FEATURE_COLS].copy()
 
-# e. PILOT: percentage of rows flagged by each method
-pilot_zscore_flag = zscore_flag(pilot)
-pilot_iforest_scores = iso.decision_function(pilot_scaled)
-pilot_iforest_flag = pilot_iforest_scores < iforest_threshold
+    scaler_type = str(config.get("features.scaler_type", "standard")).lower()
+    scaler = RobustScaler() if scaler_type == "robust" else StandardScaler()
+    X_normal_scaled = scaler.fit_transform(X_normal)
 
-print('=== PILOT EVALUATION (no labels, sanity check) ===')
-print(f'Total pilot rows: {len(pilot)}')
-print(f'Z-score flagged: {pilot_zscore_flag.sum()} ({pilot_zscore_flag.mean()*100:.2f}%)')
-print(f'Isolation Forest flagged: {pilot_iforest_flag.sum()} ({pilot_iforest_flag.mean()*100:.2f}%)')
-print()
+    n_estimators = int(config.get("model.n_estimators", 200))
+    max_samples = config.get("model.max_samples", "auto")
+    contamination = config.contamination
+    random_state = int(config.get("model.random_state", 42))
+    n_jobs = int(config.get("model.n_jobs", -1))
 
-# Pilot excluding test period (2026-10-27 22:02:14 to 22:04:05)
-# Need timestamps from pilot full
-pilot_full = pd.read_csv('data/processed/features_v2/pilot_features_full.csv')
-test_start = pd.Timestamp('2026-10-27 22:02:14')
-test_end = pd.Timestamp('2026-10-27 22:04:05')
-pilot_full['timestamp'] = pd.to_datetime(pilot_full['timestamp'])
-in_test_period = (pilot_full['timestamp'] >= test_start) & (pilot_full['timestamp'] <= test_end)
-pilot_outside = pilot_full[~in_test_period]
+    print(f"Training IsolationForest on {len(X_normal)} clean normal rows x {len(MODEL_FEATURE_COLS)} features (scaler={scaler_type})...")
+    iso = IsolationForest(
+        n_estimators=n_estimators,
+        max_samples=max_samples,
+        contamination=contamination,
+        random_state=random_state,
+        n_jobs=n_jobs,
+    )
+    iso.fit(X_normal_scaled)
+    normal_scores = iso.decision_function(X_normal_scaled)
 
-print(f'Pilot rows in test period: {in_test_period.sum()}')
-print(f'Pilot rows outside test period: {len(pilot_outside)}')
-print()
+    # Calibrate sensitivity thresholds strictly on normal training score percentiles
+    default_pct = float(config.get("model.threshold_percentile", 0.25))
+    iforest_threshold = float(np.percentile(normal_scores, default_pct))
+    sensitivity_thresholds = {
+        "Low (0.1th %ile)": float(np.percentile(normal_scores, 0.1)),
+        "Medium (0.25th %ile)": float(np.percentile(normal_scores, 0.25)),
+        "High (1.0th %ile)": float(np.percentile(normal_scores, 1.0)),
+    }
 
-# Need to align flags with pilot_outside
-# Since pilot and pilot_full have same row order (after dropna), we can use the mask
-pilot_outside_z = pilot_zscore_flag[~in_test_period.values]
-pilot_outside_if = pilot_iforest_flag[~in_test_period.values]
+    # Fit comparison detectors cleanly on evenly strided subsample (<= 6000 rows)
+    sub_idx = np.linspace(0, len(X_normal_scaled) - 1, min(6000, len(X_normal_scaled)), dtype=int)
+    ocsvm = OneClassSVM(kernel="rbf", nu=0.005, gamma="scale").fit(X_normal_scaled[sub_idx])
+    ocsvm_scores_norm = ocsvm.decision_function(X_normal_scaled)
+    ocsvm_threshold = float(np.percentile(ocsvm_scores_norm, 0.5))
 
-print('Pilot OUTSIDE test period:')
-print(f'  Z-score flagged: {pilot_outside_z.sum()} ({pilot_outside_z.mean()*100:.2f}%)')
-print(f'  Isolation Forest flagged: {pilot_outside_if.sum()} ({pilot_outside_if.mean()*100:.2f}%)')
-print()
+    lof = LocalOutlierFactor(n_neighbors=20, novelty=True, n_jobs=n_jobs).fit(X_normal_scaled[sub_idx])
+    lof_scores_norm = lof.decision_function(X_normal_scaled)
+    lof_threshold = float(np.percentile(lof_scores_norm, 0.5))
 
-# f. Distribution shift check
-print('=== DISTRIBUTION SHIFT ===')
-print(f'Normal: temp mean={normal["temperature"].mean():.2f}, hum mean={normal["humidity"].mean():.2f}')
-print(f'Test:   temp mean={test_features["temperature"].mean():.2f}, hum mean={test_features["humidity"].mean():.2f}')
-print(f'Pilot:  temp mean={pilot["temperature"].mean():.2f}, hum mean={pilot["humidity"].mean():.2f}')
-print()
-print('Normal humidity ~62-64%, Pilot/Test humidity ~58-60%: significant shift')
-print('This shift could cause false alarms since normal model never saw low humidity baseline')
-print()
+    thresholds: Dict[str, Any] = {
+        "model_type": "isolation_forest",
+        "scaler_type": scaler_type,
+        "feature_cols": list(MODEL_FEATURE_COLS),
+        "iforest_threshold": iforest_threshold,
+        "threshold_percentile": default_pct,
+        "sensitivity_thresholds": sensitivity_thresholds,
+        "zscore_threshold": float(config.get("detection.zscore_threshold", 3.0)),
+        "ewma_zscore_threshold": float(config.get("detection.ewma_zscore_threshold", 3.5)),
+        "ocsvm_threshold": ocsvm_threshold,
+        "lof_threshold": lof_threshold,
+        "normal_temp_mean": float(normal_full["temperature"].mean()),
+        "normal_temp_std": float(normal_full["temperature"].std()),
+        "normal_hum_mean": float(normal_full["humidity"].mean()),
+        "normal_hum_std": float(normal_full["humidity"].std()),
+        "ewma_temp_std": float(normal_full["temp_ewma_residual"].std()),
+        "ewma_hum_std": float(normal_full["hum_ewma_residual"].std()),
+        "GAP_THRESHOLD": int(config.gap_threshold_sec),
+        "ROLL_MIN": int(config.roll_min),
+        "short_window_sec": int(config.short_window_sec),
+        "long_window_sec": int(config.long_window_sec),
+        "ewma_halflife_sec": int(config.ewma_halflife_sec),
+        "ewma_macro_gap_sec": int(config.ewma_macro_gap_sec),
+        "persistence_window": int(config.get("detection.persistence_window", 5)),
+        "persistence_min_hits": int(config.get("detection.persistence_min_hits", 3)),
+        "alert_cooldown_sec": int(config.get("detection.alert_cooldown_sec", 30)),
+        "training_rows": int(len(normal_full)),
+        "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
 
-# g. SAVE models and thresholds
-models_dir = Path('models')
-models_dir.mkdir(parents=True, exist_ok=True)
+    # Save primary artifacts
+    joblib.dump(iso, models_dir / "iforest.joblib")
+    joblib.dump(scaler, models_dir / "scaler.joblib")
+    joblib.dump(ocsvm, models_dir / "ocsvm.joblib")
+    with open(models_dir / "thresholds.json", "w", encoding="utf-8") as f:
+        json.dump(thresholds, f, indent=2)
 
-joblib.dump(iso, models_dir / 'iforest.joblib')
-joblib.dump(scaler, models_dir / 'scaler.joblib')
+    # Evaluate across datasets
+    eval_summary: Dict[str, Any] = {
+        "generated_at": thresholds["trained_at"],
+        "training_summary": {
+            "rows": int(len(normal_full)),
+            "sessions": int(normal_full["session_id"].nunique()),
+            "temp_mean": round(thresholds["normal_temp_mean"], 2),
+            "temp_std": round(thresholds["normal_temp_std"], 3),
+            "hum_mean": round(thresholds["normal_hum_mean"], 2),
+            "hum_std": round(thresholds["normal_hum_std"], 3),
+            "ewma_temp_std": round(thresholds["ewma_temp_std"], 3),
+            "ewma_hum_std": round(thresholds["ewma_hum_std"], 3),
+        },
+        "datasets": {},
+    }
 
-thresholds = {
-    'iforest_threshold': float(iforest_threshold),
-    'zscore_threshold': 3.0,
-    'normal_temp_mean': float(normal_temp_mean),
-    'normal_temp_std': float(normal_temp_std),
-    'normal_hum_mean': float(normal_hum_mean),
-    'normal_hum_std': float(normal_hum_std),
-    'feature_cols': feature_cols,
-    'GAP_THRESHOLD': 10,
-    'ROLL_MIN': 2
-}
+    # 1. Legacy test.csv
+    test_path = feat_dir / "test_features_full.csv"
+    if test_path.exists():
+        test_df = pd.read_csv(test_path)
+        eval_summary["datasets"]["test"] = evaluate_all_models_on_df(
+            test_df, test_df["label"].to_numpy(dtype=int), scaler, iso, ocsvm, lof, thresholds
+        )
 
-with open(models_dir / 'thresholds.json', 'w') as f:
-    json.dump(thresholds, f, indent=2)
+    # 2. Pilot dataset with verified event annotations
+    pilot_path = feat_dir / "pilot_features_full.csv"
+    ann_path = proc_dir / "pilot_event_annotations.csv"
+    if pilot_path.exists() and ann_path.exists():
+        pilot_df = pd.read_csv(pilot_path)
+        pilot_df["timestamp"] = pd.to_datetime(pilot_df["timestamp"])
+        ann = pd.read_csv(ann_path)
+        y_pilot = np.zeros(len(pilot_df), dtype=int)
+        for _, row in ann.iterrows():
+            s_t = pd.to_datetime(row["start_time"])
+            e_t = pd.to_datetime(row["end_time"])
+            y_pilot[(pilot_df["timestamp"] >= s_t) & (pilot_df["timestamp"] <= e_t)] = 1
+        eval_summary["datasets"]["pilot"] = evaluate_all_models_on_df(
+            pilot_df, y_pilot, scaler, iso, ocsvm, lof, thresholds
+        )
 
-print('=== SAVED ===')
-print(f'  models/iforest.joblib')
-print(f'  models/scaler.joblib')
-print(f'  models/thresholds.json')
-print('Done.')
+    # 3. Unseen multi-fault + live hardware evaluation suite
+    suite_path = feat_dir / "eval_suite_features_full.csv"
+    if suite_path.exists():
+        suite_df = pd.read_csv(suite_path)
+        suite_res = evaluate_all_models_on_df(
+            suite_df, suite_df["label"].to_numpy(dtype=int), scaler, iso, ocsvm, lof, thresholds
+        )
+        # Add per-fault & live normal breakdown for Isolation Forest & Hybrid
+        X_s = scaler.transform(suite_df[MODEL_FEATURE_COLS])
+        if_raw = iso.decision_function(X_s) < thresholds["iforest_threshold"]
+        if_p = apply_gated_persistence(if_raw, suite_df["session_id"].to_numpy(), features_df=suite_df)
+        ez_p = compute_adaptive_ewma_z(suite_df, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"]) > thresholds["ewma_zscore_threshold"]
+        hyb_p = if_p | ez_p
+        breakdown: Dict[str, Dict[str, Any]] = {}
+        if "fault_type" in suite_df.columns:
+            for ft, grp in suite_df.groupby("fault_type"):
+                idx = grp.index.to_numpy()
+                is_anom = int(grp["label"].iloc[0]) == 1
+                breakdown[str(ft)] = {
+                    "rows": int(len(idx)),
+                    "is_anomaly": bool(is_anom),
+                    "if_recall" if is_anom else "if_fp": round(float(if_p[idx].mean()), 4) if is_anom else int(if_p[idx].sum()),
+                    "ewma_z_recall" if is_anom else "ewma_z_fp": round(float(ez_p[idx].mean()), 4) if is_anom else int(ez_p[idx].sum()),
+                    "hybrid_recall" if is_anom else "hybrid_fp": round(float(hyb_p[idx].mean()), 4) if is_anom else int(hyb_p[idx].sum()),
+                }
+        eval_summary["datasets"]["eval_suite"] = suite_res
+        eval_summary["eval_suite_breakdown"] = breakdown
+
+    # Preserve existing external benchmark section if already present
+    summary_path = models_dir / "evaluation_summary.json"
+    if summary_path.exists():
+        try:
+            existing = json.loads(summary_path.read_text(encoding="utf-8"))
+            if "external_benchmarks" in existing:
+                eval_summary["external_benchmarks"] = existing["external_benchmarks"]
+        except Exception:
+            pass
+
+    summary_path.write_text(json.dumps(eval_summary, indent=2), encoding="utf-8")
+
+    # Print clean summary table
+    for ds_name, ds_metrics in eval_summary["datasets"].items():
+        print(f"\n=== {ds_name.upper()} BENCHMARK ===")
+        for model_name, m in ds_metrics.items():
+            print(
+                f"  {model_name:24s} | P={m['precision']:.3f} R={m['recall']:.3f} F1={m['f1']:.3f} "
+                f"| PR={m['pr_auc']:.3f} ROC={m['roc_auc']:.3f} | FP={m['fp']:3d} FN={m['fn']:3d} "
+                f"| Ev={m['events_caught']}/{m['events_total']}"
+            )
+    if "eval_suite_breakdown" in eval_summary:
+        print("\n=== EVAL SUITE CATEGORY BREAKDOWN ===")
+        for ft, info in eval_summary["eval_suite_breakdown"].items():
+            print(f"  {ft:22s}: {info}")
+
+    print(f"\nSaved artifacts cleanly to {models_dir}/")
+    return eval_summary
+
+
+if __name__ == "__main__":
+    train_and_evaluate()

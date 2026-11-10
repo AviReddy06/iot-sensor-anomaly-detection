@@ -27,14 +27,12 @@ env/
 ENV/
 .venv/
 
-# IDE
+# IDE & OS
 .vscode/
 .idea/
 *.swp
 *.swo
 *~
-
-# OS
 .DS_Store
 Thumbs.db
 
@@ -44,29 +42,30 @@ Thumbs.db
 *.key
 *.pem
 
-# Data - preserve raw, ignore processed/splits (regenerated)
+# Heavy regenerable intermediate feature CSVs & downloaded external caches
+# Regenerate cleanly with:
+#   python preprocess/clean_datasets.py
+#   python features/build_features_v2.py
+#   python evaluate/benchmark_external.py
+data/benchmarks/
 data/splits/
+data/processed/features/
+data/processed/features_v2/
+data/processed/normal_data_clean.csv
+data/processed/normal_data_deduplicated_all.csv
+data/processed/normal_data_training_candidate.csv
+data/processed/normal_data_duplicate_audit.csv
+data/processed/normal_data_repeated_timestamps_report.csv
+data/processed/normal_data_suspected_tail.csv
+data/processed/pilot_data_prepared.csv
 
-# Models - ignore trained artifacts (regenerated)
-models/*.pkl
-models/*.joblib
+# Model registry extras / logs / test caches
 models/registry/
-
-# Logs
+models/*.pkl
 *.log
 logs/
-
-# MLflow
 mlruns/
-
-# Test coverage
 htmlcov/
 .coverage
 .pytest_cache/
-
-# Jupyter
 .ipynb_checkpoints/
-
-# Distribution / packaging
-*.egg
-*.whl

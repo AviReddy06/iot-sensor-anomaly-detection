@@ -2,69 +2,75 @@
 
 # Serial Communication
 serial:
-  port: "COM19"              # Windows COM port (check Device Manager)
+  port: "COM19"              # Windows COM port (auto-detected at runtime if available)
   baudrate: 115200           # Must match ESP32 firmware
   timeout: 1.0               # Read timeout in seconds
-  sampling_interval_ms: 2000 # Expected sampling interval (for gap detection)
+  sampling_interval_ms: 2000 # Expected sampling interval (2000 ms = 0.5 Hz)
+  temp_min: -10.0            # Physical sanity bound (deg C)
+  temp_max: 65.0             # Physical sanity bound (deg C)
+  hum_min: 0.0               # Physical sanity bound (% RH)
+  hum_max: 100.0             # Physical sanity bound (% RH)
 
 # Dataset Paths (relative to project root)
 data:
   raw_dir: "data/raw"
   processed_dir: "data/processed"
-  splits_dir: "data/splits"
-  
+  features_dir: "data/processed/features_v2"
+  benchmarks_dir: "data/benchmarks"
+
   # Raw dataset filenames (immutable)
   normal_csv: "normal_data.csv"
   pilot_csv: "pilot_data.csv"
   test_csv: "test.csv"
   test_labels_csv: "test_labels.csv"
-  
-  # Processed dataset filenames (generated)
-  normal_clean_parquet: "normal_data_clean.parquet"
-  pilot_clean_parquet: "pilot_data_clean.parquet"
-  test_clean_parquet: "test_data_clean.parquet"
 
-# Feature Engineering
+  # Processed dataset filenames
+  normal_clean_csv: "normal_data_clean.csv"
+  normal_training_candidate_csv: "normal_data_training_candidate.csv"
+  pilot_prepared_csv: "pilot_data_prepared.csv"
+  pilot_annotations_csv: "pilot_event_annotations.csv"
+  test_with_labels_csv: "test_data_with_labels.csv"
+  eval_suite_csv: "eval_test_suite.csv"
+
+# Feature Engineering (time-aware + session-aware)
 features:
-  rolling_window: 10         # ~20 seconds at 2Hz
-  rolling_stats: ["mean", "std", "min", "max"]
-  diff_periods: [1]          # 1-step differences
-  time_features: true        # Cyclical hour/minute/second
-  scaler_type: "robust"      # "standard" or "robust"
+  gap_threshold_sec: 10      # Gaps > 10s start a new session_id
+  roll_min: 2                # Minimum observations for partial rolling windows
+  short_window_sec: 10       # Short time-based rolling window (~5 samples @ 2s)
+  long_window_sec: 30        # Long time-based rolling window (~15 samples @ 2s)
+  ewma_halflife_sec: 2400    # 40-min calm-gated Cauchy EWMA baseline for drift-aware residuals
+  ewma_macro_gap_sec: 1800   # Offline break > 30 min resets macro baseline
+  scaler_type: "standard"    # "standard" or "robust"
 
 # Model Configuration
 model:
   type: "isolation_forest"
   n_estimators: 200
   max_samples: "auto"
-  contamination: 0.01        # Expected anomaly rate in deployment
+  contamination: "auto"
+  threshold_percentile: 0.25 # Calibrated at 0.25th percentile of clean normal IF scores (Medium)
   random_state: 42
   n_jobs: -1
 
 # Model Paths
 model_paths:
   model_dir: "models"
-  model_file: "iforest_model.pkl"
-  scaler_file: "scaler.pkl"
-  metadata_file: "metadata.json"
+  model_file: "iforest.joblib"
+  scaler_file: "scaler.joblib"
+  thresholds_file: "thresholds.json"
+  eval_summary_file: "evaluation_summary.json"
 
 # Detection / Inference
 detection:
-  score_window: 10           # Rolling window for score smoothing
-  alert_cooldown_sec: 30     # Minimum time between alerts
-  severity_thresholds:
-    warning: -0.1            # Anomaly score threshold for warning
-    critical: -0.3           # Anomaly score threshold for critical
+  zscore_threshold: 3.0
+  ewma_zscore_threshold: 3.5
+  persistence_window: 5      # K-of-M filter window (only when current sample is also flagged)
+  persistence_min_hits: 3    # Require >= 3 flagged rows in last 5 (unless sharp instantaneous excursion)
+  alert_cooldown_sec: 30     # Minimum cooldown between alert episode notifications
 
 # Dashboard
 dashboard:
   host: "localhost"
   port: 8501
   refresh_interval_sec: 2
-  history_hours: 24
-
-# Logging
-logging:
-  level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-  file: "logs/app.log"
+  buffer_maxlen: 500

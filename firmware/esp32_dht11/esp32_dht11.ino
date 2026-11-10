@@ -58,12 +58,13 @@ void loop() {
     // Returns NaN if reading fails
     float humidity = dht.readHumidity();
 
-    // Validate readings before transmitting
-    // isnan() checks for Not-a-Number (failed sensor read)
-    // DHT11 can return NaN on checksum mismatch or communication timeout
-    if (!isnan(temperature) && !isnan(humidity)) {
+    // Validate readings and physical DHT11/operating range before transmitting
+    // isnan() checks for Not-a-Number (failed sensor read, checksum mismatch, timeout)
+    if (!isnan(temperature) && !isnan(humidity) &&
+        temperature >= -10.0f && temperature <= 65.0f &&
+        humidity >= 0.0f && humidity <= 100.0f) {
         // Transmit as CSV: temperature,humidity with newline
-        // %.2f formats to 2 decimal places (matches DHT11 resolution ~0.1°C)
+        // %.2f formats to 2 decimal places (serial protocol v1.0, tested on COM19)
         // Python logger expects exactly two comma-separated floats
         Serial.printf("%.2f,%.2f\n", temperature, humidity);
     }

@@ -1,189 +1,119 @@
-# eda/audit_normal_episodes.py
-# READ-ONLY audit of possible blowing episodes in normal training data
-# Simple sequential code, no classes or lambda, comment above every step
+#!/usr/bin/env python3
+"""
+eda/audit_normal_episodes.py
+Audit raw/deduplicated normal telemetry vs quarantined anomalies vs clean training baseline.
+"""
 
-import pandas as pd
-import numpy as np
+from __future__ import annotations
+
 import json
-import matplotlib.pyplot as plt
 from pathlib import Path
+import sys
 
-# 1. Load normal features full (has timestamp, session_id, 14 features)
-# Sort by timestamp
-normal = pd.read_csv('data/processed/features_v2/normal_features_full.csv')
-normal['timestamp'] = pd.to_datetime(normal['timestamp'])
-normal = normal.sort_values('timestamp', kind='stable').reset_index(drop=True)
-print(f'Loaded normal: {len(normal)} rows, {normal["session_id"].nunique()} sessions')
-print(f'Time range: {normal["timestamp"].min()} to {normal["timestamp"].max()}')
-print()
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-# 2. Candidate rule: robust z-score > 8 for temperature_change OR humidity_change
-# Robust z = (x - median) / (1.4826 * MAD)
-# MAD = median(|x - median|)
-# 1.4826 scales MAD to be consistent with std for normal distribution
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-for col in ['temperature_change', 'humidity_change']:
-    median = normal[col].median()
-    mad = np.median(np.abs(normal[col] - median))
-    if mad == 0:
-        mad = 1e-10  # avoid division by zero
-    scale = 1.4826 * mad
-    normal[f'{col}_robust_z'] = (normal[col] - median) / scale
-    print(f'{col}: median={median:.4f}, MAD={mad:.4f}, scale={scale:.4f}')
+from config import config
 
-# Mark candidate if abs(robust z) > 8 for EITHER column
-normal['is_candidate'] = (normal['temperature_change_robust_z'].abs() > 8) | \
-                          (normal['humidity_change_robust_z'].abs() > 8)
 
-candidate_rows = normal[normal['is_candidate']].copy()
-print(f'\nCandidate rows (robust z > 8): {len(candidate_rows)} out of {len(normal)} ({len(candidate_rows)/len(normal)*100:.2f}%)')
-print()
+def run_audit() -> None:
+    proc_dir = config.processed_dir
+    plots_dir = PROJECT_ROOT / "eda" / "plots_v2"
+    plots_dir.mkdir(parents=True, exist_ok=True)
 
-# 3. Merge into episodes: same session, timestamps within 30 seconds
-episodes = []
-if len(candidate_rows) > 0:
-    candidate_rows = candidate_rows.sort_values('timestamp').reset_index(drop=True)
-    
-    current_ep = [candidate_rows.iloc[0].name]  # list of indices
-    for i in range(1, len(candidate_rows)):
-        prev = candidate_rows.iloc[i-1]
-        curr = candidate_rows.iloc[i]
-        
-        same_session = (curr['session_id'] == prev['session_id'])
-        time_gap = (curr['timestamp'] - prev['timestamp']).total_seconds()
-        
-        if same_session and time_gap <= 30:
-            current_ep.append(curr.name)
-        else:
-            episodes.append(current_ep)
-            current_ep = [curr.name]
-    episodes.append(current_ep)
+    dedup = pd.read_csv(proc_dir / "normal_data_deduplicated_all.csv")
+    dedup["timestamp"] = pd.to_datetime(dedup["timestamp"])
+    dedup = dedup.sort_values("timestamp", kind="stable").reset_index(drop=True)
 
-print(f'Number of episodes: {len(episodes)}')
-print()
+    quarantined = pd.read_csv(proc_dir / "normal_quarantined_anomalies.csv")
+    quarantined["timestamp"] = pd.to_datetime(quarantined["timestamp"])
 
-# For each episode, print details
-normal_temp_median = normal['temperature'].median()
-normal_hum_median = normal['humidity'].median()
+    clean = pd.read_csv(proc_dir / "normal_data_training_candidate.csv")
+    clean["timestamp"] = pd.to_datetime(clean["timestamp"])
 
-for ep_num, ep_indices in enumerate(episodes, 1):
-    ep_rows = normal.loc[ep_indices]
-    start_time = ep_rows['timestamp'].min()
-    end_time = ep_rows['timestamp'].max()
-    n_rows = len(ep_rows)
-    peak_temp = ep_rows['temperature'].max()
-    peak_hum = ep_rows['humidity'].max()
-    
-    print(f'Episode {ep_num}:')
-    print(f'  Start: {start_time}')
-    print(f'  End: {end_time}')
-    print(f'  Candidate rows: {n_rows}')
-    print(f'  Peak temperature: {peak_temp:.2f} (normal median: {normal_temp_median:.2f})')
-    print(f'  Peak humidity: {peak_hum:.2f} (normal median: {normal_hum_median:.2f})')
-    print()
+    print(f"Deduplicated normal rows : {len(dedup):,}")
+    print(f"Quarantined anomaly rows : {len(quarantined):,} ({len(quarantined) / max(len(dedup), 1) * 100:.2f}%)")
+    print(f"Clean training candidate : {len(clean):,}")
 
-# 4. Totals
-print('=== TOTALS ===')
-print(f'Total candidate rows: {len(candidate_rows)}')
-print(f'Total episodes: {len(episodes)}')
-print(f'Percentage of 36,941 rows: {len(candidate_rows)/36941*100:.2f}%')
-print()
+    # Physical rate & robust MAD check (with noise-floor guard >= 0.05 to avoid quantization zero-MAD explosion)
+    dedup["dt"] = dedup["timestamp"].diff().dt.total_seconds().fillna(2.0).clip(lower=1.0)
+    dedup["temp_step"] = dedup["temperature"].diff().fillna(0.0)
+    dedup["hum_step"] = dedup["humidity"].diff().fillna(0.0)
+    dedup.loc[dedup["dt"] > config.gap_threshold_sec, ["temp_step", "hum_step"]] = 0.0
 
-# Rolling-window contamination zone: rows within 14 rows after each episode's end
-# Need to find the position of episode end in the full sorted normal dataframe
-contamination_count = 0
-contamination_rows = set()
+    for col, floor in [("temp_step", 0.05), ("hum_step", 0.15)]:
+        med = float(dedup[col].median())
+        mad = float(np.median(np.abs(dedup[col] - med)))
+        scale = max(1.4826 * mad, floor)
+        dedup[f"{col}_robust_z"] = (dedup[col] - med) / scale
+        print(f"  {col}: median={med:.4f}, MAD={mad:.4f}, bounded_scale={scale:.4f}")
 
-for ep_indices in episodes:
-    ep_rows = normal.loc[ep_indices]
-    last_idx = ep_rows.index.max()  # last row index in original dataframe
-    # Get next 14 rows in the full dataframe
-    next_14 = normal.index[normal.index > last_idx][:14]
-    contamination_rows.update(next_14)
-
-contamination_count = len(contamination_rows)
-print(f'Rows within 14 rows after episode ends (contamination zone): {contamination_count}')
-print()
-
-# 5. Sensitivity: thresholds 5, 8, 12
-print('=== SENSITIVITY (information only) ===')
-for thresh in [5, 8, 12]:
-    mask = (normal['temperature_change_robust_z'].abs() > thresh) | \
-           (normal['humidity_change_robust_z'].abs() > thresh)
-    cand = normal[mask].copy()
-    
-    # Count episodes for this threshold
-    if len(cand) > 0:
-        cand = cand.sort_values('timestamp').reset_index(drop=True)
-        ep_list = []
-        curr_ep = [cand.iloc[0].name]
-        for i in range(1, len(cand)):
-            prev = cand.iloc[i-1]
-            curr = cand.iloc[i]
-            same_session = (curr['session_id'] == prev['session_id'])
-            time_gap = (curr['timestamp'] - prev['timestamp']).total_seconds()
-            if same_session and time_gap <= 30:
-                curr_ep.append(curr.name)
+    # Merge quarantined episodes cleanly using dedup index (no index mismatch)
+    is_cand = (dedup["temp_step_robust_z"].abs() > 6.0) | (dedup["hum_step_robust_z"].abs() > 6.0) | (dedup["humidity"] > 72.0)
+    cand_indices = dedup.index[is_cand].tolist()
+    episodes = []
+    if cand_indices:
+        cur = [cand_indices[0]]
+        for idx in cand_indices[1:]:
+            gap = (dedup.loc[idx, "timestamp"] - dedup.loc[cur[-1], "timestamp"]).total_seconds()
+            if gap <= 60.0:
+                cur.append(idx)
             else:
-                ep_list.append(curr_ep)
-                curr_ep = [curr.name]
-        ep_list.append(curr_ep)
-        n_episodes = len(ep_list)
-    else:
-        n_episodes = 0
-    
-    print(f'  Threshold {thresh}: {len(cand)} candidate rows, {n_episodes} episodes')
-print()
+                episodes.append(cur)
+                cur = [idx]
+        episodes.append(cur)
 
-# 6. Save plot
-print('=== SAVING PLOT ===')
-fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    print(f"\nDetected disturbance seed episodes in deduplicated normal set: {len(episodes)}")
+    for i, ep_idx in enumerate(episodes, start=1):
+        sub = dedup.loc[ep_idx]
+        print(
+            f"  Episode {i}: {sub['timestamp'].min()} -> {sub['timestamp'].max()} "
+            f"| seed_rows={len(sub)} | T=[{sub['temperature'].min():.1f}, {sub['temperature'].max():.1f}] "
+            f"| H=[{sub['humidity'].min():.1f}, {sub['humidity'].max():.1f}]"
+        )
 
-# Temperature over time
-axes[0].plot(normal['timestamp'], normal['temperature'], 'b-', alpha=0.5, linewidth=0.5, label='Temperature')
-if len(candidate_rows) > 0:
-    axes[0].scatter(candidate_rows['timestamp'], candidate_rows['temperature'],
-                    color='red', s=10, zorder=5, label=f'Candidate (robust z > 8)')
-axes[0].axhline(y=normal_temp_median, color='blue', linestyle='--', alpha=0.5, label=f'Median ({normal_temp_median:.2f})')
-axes[0].set_ylabel('Temperature (°C)')
-axes[0].legend(loc='upper right')
-axes[0].grid(True, alpha=0.3)
+    # Save visual plot to canonical eda/plots_v2/
+    fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+    axes[0].plot(dedup["timestamp"], dedup["temperature"], "b-", alpha=0.5, linewidth=0.6, label="Deduplicated Normal")
+    if len(quarantined) > 0:
+        axes[0].scatter(quarantined["timestamp"], quarantined["temperature"], color="red", s=12, zorder=5, label="Quarantined Anomaly/Burst")
+    axes[0].axhline(clean["temperature"].median(), color="blue", linestyle="--", alpha=0.5, label=f"Clean Median ({clean['temperature'].median():.1f}°C)")
+    axes[0].set_ylabel("Temperature (°C)")
+    axes[0].set_title("Normal Dataset Audit — Quarantined vs Clean Baseline")
+    axes[0].legend(loc="upper right")
+    axes[0].grid(True, alpha=0.3)
 
-# Humidity over time
-axes[1].plot(normal['timestamp'], normal['humidity'], 'g-', alpha=0.5, linewidth=0.5, label='Humidity')
-if len(candidate_rows) > 0:
-    axes[1].scatter(candidate_rows['timestamp'], candidate_rows['humidity'],
-                    color='red', s=10, zorder=5, label=f'Candidate (robust z > 8)')
-axes[1].axhline(y=normal_hum_median, color='green', linestyle='--', alpha=0.5, label=f'Median ({normal_hum_median:.2f})')
-axes[1].set_ylabel('Humidity (%)')
-axes[1].set_xlabel('Timestamp')
-axes[1].legend(loc='upper right')
-axes[1].grid(True, alpha=0.3)
+    axes[1].plot(dedup["timestamp"], dedup["humidity"], "g-", alpha=0.5, linewidth=0.6, label="Deduplicated Normal")
+    if len(quarantined) > 0:
+        axes[1].scatter(quarantined["timestamp"], quarantined["humidity"], color="red", s=12, zorder=5, label="Quarantined Anomaly/Burst")
+    axes[1].axhline(clean["humidity"].median(), color="green", linestyle="--", alpha=0.5, label=f"Clean Median ({clean['humidity'].median():.1f}%)")
+    axes[1].set_ylabel("Humidity (% RH)")
+    axes[1].set_xlabel("Timestamp")
+    axes[1].legend(loc="upper right")
+    axes[1].grid(True, alpha=0.3)
 
-plt.tight_layout()
-plot_path = 'eda/plots/normal_candidate_episodes.png'
-fig.savefig(plot_path, dpi=150, bbox_inches='tight')
-print(f'Saved: {plot_path}')
-print()
+    plt.tight_layout()
+    out_plot = plots_dir / "normal_candidate_episodes.png"
+    fig.savefig(out_plot, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"\nSaved audit plot: {out_plot}")
 
-# 7. Compare with Z-score baseline
-print('=== Z-SCORE BASELINE COMPARISON ===')
-with open('models/thresholds.json', 'r') as f:
-    thresholds = json.load(f)
+    # Verify post-cleaning baseline has 0 extreme single-step jumps inside sessions
+    clean_dt = clean["timestamp"].diff().dt.total_seconds().fillna(2.0)
+    clean_dT = clean["temperature"].diff().fillna(0.0).where(clean_dt <= config.gap_threshold_sec, 0.0)
+    clean_dH = clean["humidity"].diff().fillna(0.0).where(clean_dt <= config.gap_threshold_sec, 0.0)
+    print(
+        f"Clean training stability check: max |dT|={clean_dT.abs().max():.2f}°C, "
+        f"max |dH|={clean_dH.abs().max():.2f}% RH, H range=[{clean['humidity'].min():.1f}, {clean['humidity'].max():.1f}]"
+    )
 
-normal_temp_mean = thresholds['normal_temp_mean']
-normal_temp_std = thresholds['normal_temp_std']
-normal_hum_mean = thresholds['normal_hum_mean']
-normal_hum_std = thresholds['normal_hum_std']
 
-z_temp = np.abs((candidate_rows['temperature'] - normal_temp_mean) / normal_temp_std)
-z_hum = np.abs((candidate_rows['humidity'] - normal_hum_mean) / normal_hum_std)
-z_flag = (z_temp > 3) | (z_hum > 3)
-
-print(f'Candidate rows with abs(z) > 3 for temp OR hum: {z_flag.sum()} out of {len(candidate_rows)}')
-print(f'These are episodes the Z-score baseline ALREADY treats as anomalies')
-print(f'Candidate rows with abs(z) <= 3 for BOTH: {(~z_flag).sum()} out of {len(candidate_rows)}')
-print(f'These are episodes the Z-score baseline treats as NORMAL')
-
-print()
-print('=== DONE ===')
+if __name__ == "__main__":
+    run_audit()

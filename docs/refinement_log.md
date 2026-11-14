@@ -153,3 +153,78 @@ This log documents the iterative refinement passes for the client-facing page of
 2. **Vertical Rhythm**: Before, intervals were erratic (32px above charts, 32px before log, 64px before footer, 12-16px intra-block). After, the page adheres strictly to an 8 px grid: exactly 72 px above the chart section, 48 px between sections, and 24 px inside blocks.
 3. **Table & Numbers**: Before, table text was 14px with a 12px badge violating the floor rule, numeric columns were left-aligned, and units lacked thin spaces. After, table text is 15px, badges are 13px (conforming to the floor), numeric columns are right-aligned, units use `\u2009`, and event descriptions are properly capitalized.
 
+
+
+---
+
+## Area D: Mobile Layout and States
+
+### Concrete Numbered Critique of Area D Defects (Prior to Changes)
+
+1. **Mobile Event Table Sideways Overflow (Measurement: 640 px min-width vs 350 px content width = 290 px overflow)**:
+   - *Element*: `UnusualLog.jsx:58-59`.
+   - *Defect*: `<table className="w-full min-w-[640px]">` enclosed in an overflow container triggers 290 px sideways scrolling at 390 px viewport ($390 - 40 = 350\text{ px}$ content width). Violates: *"At 390 px there is no horizontal page scroll and no table that scrolls sideways"*.
+2. **Range Button Touch Targets Deficit (Measurement: 24 px wide × 20 px tall vs 44 px target = 20 px / 24 px deficit)**:
+   - *Element*: `ClientStripChart.jsx:186-193`.
+   - *Defect*: Range selector buttons use `py-0.5` without minimum width/height constraints, rendering at $24 \times 20\text{ px}$. Violates the standard 44 px mobile touch target specification (*"touch targets at least 44 px (range buttons)"*).
+3. **Chart Mobile Touch Gesture Dependency on Hover (Measurement: 0 touch/drag event handlers)**:
+   - *Element*: `StripChartGrid.jsx:38-41`, `ClientStripChart.jsx:225-238`.
+   - *Defect*: SVG canvas only listens to `onPointerMove` and `onPointerLeave` without `onPointerDown`, pointer capture, or `touch-none`. Dragging touches trigger viewport scrolling rather than timeline scrubbing; taps do not reliably reveal tooltips.
+4. **Missing Safe-Area Inset Support (Measurement: 0 px padding, missing viewport-fit=cover)**:
+   - *Element*: `frontend/index.html:9`, `ClientView.jsx:35-36`.
+   - *Defect*: Meta viewport omits `viewport-fit=cover`, and layout omits `env(safe-area-inset-*)` padding utilities (`.pt-safe`, `.pb-safe`, `.px-safe`).
+5. **Room Map Mobile Max-Width Unconstrained (Measurement: expands up to 704 px on tablet)**:
+   - *Element*: `ClientView.jsx:110-115`, `RoomMap.jsx:83`.
+   - *Defect*: In single-column view, the `RoomMap` column is unconstrained by a maximum width, expanding up to 704 px on tablet viewports instead of maintaining the mandated $\le 360\text{ px}$ ceiling.
+6. **Missing Offline 60% Opacity and Offline Banner**:
+   - *Element*: `ClientView.jsx:98-116`.
+   - *Defect*: When sensor is offline, charts do not dim to `opacity-60`, and the explicit banner `"Sensor offline since [time]. Showing the last readings."` is missing.
+7. **Missing Stale Data Detection (> 20 s)**:
+   - *Element*: `ClientView.jsx:45-63`.
+   - *Defect*: When readings are older than 20 s (`Date.now() - lastReading > 20s`), the UI does not append `"Last reading [time] ago."` to the status line.
+8. **Missing Waiting State Message**:
+   - *Element*: `ClientView.jsx:84-88`.
+   - *Defect*: When collecting initial telemetry ($< 10$ readings), the UI displays `"Reading the sensor."` instead of the mandated `"Collecting readings. Charts appear after about a minute."`.
+9. **Backend Unreachable Copy and Polling Cadence Mismatch**:
+   - *Element*: `useClientData.js:26`, `ClientView.jsx:91-95`.
+   - *Defect*: Displays `"Could not reach the sensor service..."` instead of `"Cannot reach the monitor. Retrying in 10 s."`. Polling persists at 4s instead of 10s cadence.
+10. **WebSocket Reconnection Missing Exponential Backoff**:
+    - *Element*: `useClientData.js:89-94`.
+    - *Defect*: WebSocket reconnect uses a fixed 3000 ms timer without exponential backoff ($1\text{s} \to 30\text{s}$), and lacks an `onerror` handler to prevent console noise.
+11. **Mobile Severity Badge Visual Consistency**:
+    - *Element*: `UnusualLog.jsx:120-130`.
+    - *Defect*: Mobile cards require cohesive 13px Atkinson typography, amber alert borders, and thermohygrograph styling without tabular sideways overflow.
+12. **Line Count Headroom in ClientStripChart.jsx (Measurement: 243 lines vs 250 ceiling = 7 lines headroom)**:
+    - *Element*: `ClientStripChart.jsx`.
+    - *Defect*: Tight 7-line headroom requires compact helper formatting before adding touch target styles to maintain compliance under the strict 250-line ceiling.
+
+
+### Changes Implemented
+
+- **Area**: Area D — Mobile Layout and States
+- **Screenshots**:
+  - Before: `docs/screenshots/refine_before_D_1440.png`, `docs/screenshots/refine_before_D_390.png`
+  - After: `docs/screenshots/refine_after_D_1440.png`, `docs/screenshots/refine_after_D_390.png`
+  - State Screenshots (14 total): `docs/screenshots/states_<state>_390.png` and `states_<state>_1440.png` across all 7 system states (`loading`, `no_data`, `waiting`, `offline`, `stale_data`, `backend_unreachable`, `simulated`)
+
+| # | Defect Addressed | Concrete Change | File Modified |
+|---|------------------|-----------------|---------------|
+| 1 | Defect 4 (Missing safe-area insets & viewport-fit) | Added `viewport-fit=cover` to meta viewport tag for mobile notch and home-indicator handling. | `frontend/index.html` |
+| 2 | Defect 4 & 3 (Safe-area padding & gesture utilities) | Added safe-area padding utility classes (`.pt-safe`, `.pb-safe`, `.pl-safe`, `.pr-safe`, `.px-safe`, `.p-safe`) and `.touch-none` (`touch-action: none`) utility. | `frontend/src/index.css` |
+| 3 | Defect 4, 6, 7, 8 (Safe-area, states & opacity) | Added safe-area padding to top container (`pt-safe pb-safe px-safe`); added offline banner `"Sensor offline since [time]. Showing the last readings."`; applied `opacity-60` to charts when offline; added stale data detection (> 20s) adding `"Last reading [time] ago."` to status line; added waiting state copy `"Collecting readings. Charts appear after about a minute."` in supporting line. | `frontend/src/views/ClientView.jsx` |
+| 4 | Defect 5 (RoomMap unconstrained width on mobile) | Wrapped RoomMap column with `max-w-[360px] w-full mx-auto lg:mx-0`, guaranteeing RoomMap never exceeds 360 px width on any mobile or tablet viewport. | `frontend/src/views/ClientView.jsx` |
+| 5 | Defect 1 & 11 (Table sideways overflow & mobile cards) | Replaced sideways-scrolling table at $< 640\text{ px}$ with responsive two-line event cards (`sm:hidden`) displaying `#1  22:03  20 s  High` over `whatChanged`; hid full table on mobile (`hidden sm:block`) eliminating horizontal scroll entirely. | `frontend/src/components/UnusualLog.jsx` |
+| 6 | Defect 2 & 12 (Touch targets >= 44px & headroom) | Enforced touch targets $\ge 44\text{ px}$ on range buttons (`min-h-[44px] min-w-[44px] inline-flex items-center justify-center px-2.5`); compacted downsampling and domain calculation helpers to keep file under 240 lines. | `frontend/src/components/ClientStripChart.jsx` |
+| 7 | Defect 3 (Touch gesture scrubbing on mobile) | Added pointerdown/move/up handlers enabling tap-to-tooltip and drag-to-scrub without dependence on hover. | `frontend/src/components/ClientStripChart.jsx` |
+| 8 | Defect 3 (SVG gesture capture & touch-none) | Forwarded pointerdown/move/up handlers to SVG element and applied `touch-none` class to prevent mobile scroll interference during timeline scrubbing. | `frontend/src/components/StripChartGrid.jsx` |
+| 9 | Defect 10 (WebSocket exponential backoff) | Implemented WebSocket reconnection with exponential backoff ($1\text{s} \to 2\text{s} \to 4\text{s} \to 8\text{s} \to 16\text{s} \to 30\text{s}$ max, reset on `onopen`) with silent state retention without flashing or clearing UI. | `frontend/src/hooks/useClientData.js` |
+| 10 | Defect 9 (Backend unreachable copy & 10s cadence) | Standardized error copy to verbatim `"Cannot reach the monitor. Retrying in 10 s."` and adjusted polling retry interval to 10 s when server is unreachable. | `frontend/src/hooks/useClientData.js` |
+| 11 | Defect 6-8 (State screenshot automation) | Created `scripts/capture_state_screenshots.py` leveraging Playwright route interception to produce all 14 required state screenshots across 390px and 1440px viewports. | `scripts/capture_state_screenshots.py` |
+| 12 | Verification Suite (Challenger test suite) | Created `scripts/test_challenger_area_d.py` validating 390px scroll width ($\le 390\text{ px}$), 44px touch targets, safe areas, 7 system states, bundle size, and line count guardrails. | `scripts/test_challenger_area_d.py` |
+
+### Visual Comparison Summary (Before vs After)
+
+1. **Mobile Usability & Sideways Scroll**: Before, viewing the page on a 390 px phone resulted in a 290 px horizontal overflow caused by the 640 px wide log table, forcing awkward horizontal scrolling. After, the event log renders clean, legible two-line event cards on mobile showing event number, time, duration, and severity over the description, while the full table remains on tablet/desktop. The page has zero horizontal scroll (`scrollWidth === 390 px`).
+2. **Touch Targets & Gestures**: Before, range selector buttons measured only $24 \times 20\text{ px}$, causing frequent mis-taps on mobile, and the chart required hovering to view values. After, all range buttons strictly satisfy the $\ge 44\text{ px}$ touch target specification (`44 \times 44\text{ px}`), and touch-drag scrubbing with `touch-none` allows effortless tactile exploration on mobile screens.
+3. **Room Map Sizing**: Before, on tablet viewports the RoomMap could stretch up to 704 px wide. After, the RoomMap is bounded by a crisp 360 px ceiling (`max-w-[360px]`), centered cleanly.
+4. **System State Transparency**: Before, offline, waiting, stale, and unreachable states were ambiguous or missing explicit customer copy. After, when offline, charts dim to 60% opacity beneath an explicit status banner `"Sensor offline since 11:32. Showing the last readings."`; telemetry older than 20 s appends `"Last reading 3 min ago."` to the status line; waiting states instruct the customer `"Collecting readings. Charts appear after about a minute."`; and connection drops display `"Cannot reach the monitor. Retrying in 10 s."` with smooth backoff and zero UI flashing.

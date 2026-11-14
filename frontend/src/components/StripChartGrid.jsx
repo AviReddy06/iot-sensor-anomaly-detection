@@ -21,7 +21,9 @@ export default function StripChartGrid({
   directLabels,
   visibleEventBands,
   hoverData,
+  onPointerDown,
   onPointerMove,
+  onPointerUp,
   onPointerLeave,
 }) {
   // Step 1: Coordinates for ASHRAE 55 thermal comfort bands
@@ -35,9 +37,11 @@ export default function StripChartGrid({
       <svg
         width={width}
         height={totalHeight}
+        onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
         onPointerLeave={onPointerLeave}
-        className="block select-none cursor-crosshair"
+        className="block select-none cursor-crosshair touch-none"
       >
         <defs>
           {/* Step 2: Light diagonal hatching pattern for data gaps (>10s) */}

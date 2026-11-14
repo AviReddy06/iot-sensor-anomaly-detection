@@ -9,7 +9,7 @@ export function useClientData() {
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
 
-  // Step 1: Initial hydration & periodic REST polling fallback
+  // Step 1: Initial hydration & periodic REST polling fallback (10s retry on failure)
   const fetchClientData = useCallback(async () => {
     try {
       const [statusRes, readingsRes, eventsRes] = await Promise.all([
@@ -22,30 +22,48 @@ export function useClientData() {
       if (readingsRes && readingsRes.length > 0) setReadings(readingsRes);
       if (eventsRes) setEvents(eventsRes);
       setLoadError(null);
+      return true;
     } catch {
-      setLoadError("Could not reach the sensor service. Showing the latest available data.");
+      setLoadError("Cannot reach the monitor. Retrying in 10 s.");
+      return false;
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   useEffect(() => {
-    fetchClientData();
-    const timer = setInterval(fetchClientData, 4000);
-    return () => clearInterval(timer);
+    let timer = null;
+    let isMounted = true;
+    const poll = async () => {
+      const ok = await fetchClientData();
+      if (isMounted) {
+        timer = setTimeout(poll, ok ? 4000 : 10000);
+      }
+    };
+    poll();
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [fetchClientData]);
 
-  // Step 2: Real-time WebSocket connection for live telemetry stream
+  // Step 2: Real-time WebSocket connection with exponential backoff without flashing UI
   useEffect(() => {
     const wsProto = window.location.protocol === "https:" ? "wss:" : "ws:";
     const wsHost = window.location.host;
     const wsUrl = `${wsProto}//${wsHost}/ws/telemetry`;
     let ws = null;
     let reconnectTimeout = null;
+    let backoffMs = 1000;
+    let isDisposed = false;
 
     const connectWs = () => {
+      if (isDisposed) return;
       try {
         ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          backoffMs = 1000;
+        };
         ws.onmessage = (evt) => {
           try {
             const data = JSON.parse(evt.data);
@@ -86,16 +104,24 @@ export function useClientData() {
             // Ignore non-JSON broadcast frames
           }
         };
+        ws.onerror = () => {
+          // Suppress uncaught websocket error logs during disconnection
+        };
         ws.onclose = () => {
-          reconnectTimeout = setTimeout(connectWs, 3000);
+          if (isDisposed) return;
+          reconnectTimeout = setTimeout(connectWs, backoffMs);
+          backoffMs = Math.min(backoffMs * 2, 30000);
         };
       } catch {
-        reconnectTimeout = setTimeout(connectWs, 3000);
+        if (isDisposed) return;
+        reconnectTimeout = setTimeout(connectWs, backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 30000);
       }
     };
 
     connectWs();
     return () => {
+      isDisposed = true;
       if (ws) ws.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };

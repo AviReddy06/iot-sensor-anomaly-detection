@@ -20,6 +20,7 @@ Student: Dungu Avinash Reddy | Roll: RK3P25KZA09 | Reg: 12509090
 ---
 
 ## Summary of Accomplishments
-1. **Client Page (`/`)**: Follows the digital thermohygrograph aesthetic on archival paper (`#EEF1EF`) with continuous dual-ink traces (`#9B2C2C` temp, `#1D5C8C` hum), phase-space room map, plain-English unusual event log, and zero ML jargon.
-2. **Admin Page (`/admin`)**: Fully protected behind constant-time HMAC login and signed expiring tokens; rate-limited (5 attempts/min); 503 when `ADMIN_PASSWORD` is unset. Contains plain-text navigation with verified 4-label metrics, dataset downloads, and hardware/simulation streaming.
-3. **Honest Reporting**: All figures and tables reconcile historical v1 vs current v2 numbers, disclose the post-hoc pilot relabelling, declare synthetic fault injections, report IoTsec 470 false alarms, and detail dataset overlap.
+1. **Client Page (`/`)**: Follows the digital thermohygrograph aesthetic on archival paper (`#EEF1EF`) with continuous dual-ink traces (`#9B2C2C` temp, `#1D5C8C` hum), phase-space room map, plain-English unusual event log, and zero ML jargon. Enhanced with ASHRAE 55 thermal comfort target envelopes on both charts, live telemetry pulsing badges, and modular components under 250 lines.
+2. **Event Deduplication**: Idempotent insert checks in `backend/database.py` and client-side deduplication in `UnusualLog.jsx` prevent replayed simulations from duplicating identical anomaly event records.
+3. **Admin Page (`/admin`)**: Fully protected behind constant-time HMAC login and signed expiring tokens; rate-limited (5 attempts/min); 503 when `ADMIN_PASSWORD` is unset. Contains plain-text navigation with verified 4-label metrics, dataset downloads, and hardware/simulation streaming.
+4. **Honest Reporting**: All figures and tables reconcile historical v1 vs current v2 numbers, disclose the post-hoc pilot relabelling, declare synthetic fault injections, report IoTsec 470 false alarms, and detail dataset overlap.

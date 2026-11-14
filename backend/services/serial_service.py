@@ -1,185 +1,271 @@
 """
 backend/services/serial_service.py
-Serial communication background service.
-Exactly one thread owns the port. Suppresses bootloader resets via dtr=False, rts=False.
-Supports auto-detection, reconnection backoff, and CSV simulation mode.
+Manages live USB serial streaming from ESP32, simulated dataset playback,
+and real-time WebSocket frame broadcasting.
 """
 
 from __future__ import annotations
+
 import asyncio
-from datetime import datetime, timezone
+from collections import deque
+from datetime import datetime
+import json
 from pathlib import Path
+import queue
+import sys
 import threading
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Deque, Dict, List, Optional, Set
+
 import pandas as pd
 import serial
-import serial.tools.list_ports
-from backend.config import PROJECT_ROOT, SERIAL_PORT
-from backend.database import insert_reading
-from backend.services.detector_service import detector_service
-from backend.services.events_service import events_service
-from backend.services.serial_parser import parse_serial_line
+from serial.tools import list_ports
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from alerts.notifier import AlertManager, load_alert_settings
+from collect.serial_utils import (
+    detect_esp32_port,
+    open_serial_port,
+    parse_sensor_line,
+    register_active_serial_port,
+    release_active_serial_port,
+    unregister_active_serial_port,
+)
+from config import config
+from backend.services.inference_service import inference_service
 
 
 class SerialService:
-    def __init__(self):
-        # Step 1: Initialize threading and state variables
-        self._thread: Optional[threading.Thread] = None
-        self._running: bool = False
-        self._port: str = SERIAL_PORT
-        self._baudrate: int = 115200
-        self._is_streaming: bool = False
-        self._stream_source: str = "none"  # "hardware", "simulation", or "none"
-        self._last_error: Optional[str] = None
-        self._recent_buffer: List[Dict[str, Any]] = []
-        self._listeners: List[Callable[[Dict[str, Any]], None]] = []
+    def __init__(self, buffer_maxlen: int = 500):
+        self.buffer_maxlen = buffer_maxlen
+        self.data_buffer: Deque[Dict[str, Any]] = deque(maxlen=buffer_maxlen)
+        self.scored_history: Deque[Dict[str, Any]] = deque(maxlen=buffer_maxlen)
+        self.is_streaming: bool = False
+        self.stream_source: str = "none"  # "serial", "simulation", "none"
+        self.current_port: Optional[str] = None
+        self.current_baud: int = 115200
+        self.stop_event = threading.Event()
+        self.worker_thread: Optional[threading.Thread] = None
+        self.last_error: Optional[str] = None
+        self.broadcast_callback: Optional[Callable[[Dict[str, Any]], Any]] = None
+        self.loop: Optional[asyncio.AbstractEventLoop] = None
+        self.alert_manager = AlertManager(load_alert_settings())
+        self.incident_log: Deque[Dict[str, Any]] = deque(maxlen=100)
 
-    def add_listener(self, cb: Callable[[Dict[str, Any]], None]) -> None:
-        self._listeners.append(cb)
+    def set_broadcast_callback(self, callback: Callable[[Dict[str, Any]], Any], loop: asyncio.AbstractEventLoop):
+        self.broadcast_callback = callback
+        self.loop = loop
 
-    def detect_esp32_port(self) -> Optional[str]:
-        # Step 1: Scan ports for known USB-UART bridge identifiers
-        for p in serial.tools.list_ports.comports():
-            desc = (p.description or "").lower()
-            hwid = (p.hwid or "").lower()
-            if any(k in desc or k in hwid for k in ["cp210", "ch340", "ch341", "ftdi", "usb serial"]):
-                return p.device
-        return None
-
-    def start_hardware(self, port: Optional[str] = None, baud: int = 115200) -> Dict[str, Any]:
-        # Step 1: Stop existing stream if active
-        self.stop()
-        target_port = port or (None if self._port == "auto" else self._port) or self.detect_esp32_port()
-        if not target_port:
-            raise ValueError("No ESP32 serial port detected or specified.")
-        self._port = target_port
-        self._baudrate = baud
-        self._stream_source = "hardware"
-        self._running = True
-        # Step 2: Spawn single background thread
-        self._thread = threading.Thread(target=self._hardware_loop, daemon=True)
-        self._thread.start()
-        return {"status": "started", "source": "hardware", "port": self._port}
-
-    def start_simulation(self, csv_name: str = "test", interval_sec: float = 1.0) -> Dict[str, Any]:
-        # Step 1: Stop existing stream
-        self.stop()
-        self._stream_source = "simulation"
-        self._running = True
-        # Step 2: Spawn simulation thread
-        self._thread = threading.Thread(target=self._simulation_loop, args=(csv_name, interval_sec), daemon=True)
-        self._thread.start()
-        return {"status": "started", "source": "simulation", "dataset": csv_name}
-
-    def stop(self) -> Dict[str, Any]:
-        # Step 1: Signal thread to terminate and join
-        self._running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.5)
-        self._thread = None
-        self._is_streaming = False
-        self._stream_source = "none"
-        return {"status": "stopped"}
-
-    def _hardware_loop(self) -> None:
-        backoff = 1.0
-        while self._running:
-            ser = None
-            try:
-                # Step 1: Open port with dtr=False and rts=False to prevent bootloader reset
-                ser = serial.Serial()
-                ser.port = self._port
-                ser.baudrate = self._baudrate
-                ser.timeout = 1.0
-                ser.dtr = False
-                ser.rts = False
-                ser.open()
-                self._is_streaming = True
-                self._last_error = None
-                backoff = 1.0
-
-                while self._running and ser.is_open:
-                    line_raw = ser.readline().decode("utf-8", errors="replace")
-                    parsed = parse_serial_line(line_raw)
-                    if parsed is not None:
-                        temp, hum = parsed
-                        self._process_reading(temp, hum, is_simulated=False)
-            except Exception as e:
-                self._last_error = str(e)
-                self._is_streaming = False
-                time.sleep(backoff)
-                backoff = min(backoff * 1.5, 10.0)
-            finally:
-                if ser and ser.is_open:
-                    ser.close()
-
-    def _simulation_loop(self, csv_name: str, interval: float) -> None:
-        # Step 1: Load CSV file
-        p = PROJECT_ROOT / "data" / "processed" / f"{csv_name}_data_with_labels.csv"
-        if not p.exists():
-            p = PROJECT_ROOT / "data" / "raw" / f"{csv_name}.csv"
-        df = pd.read_csv(p) if p.exists() else pd.DataFrame({"temperature": [25.5], "humidity": [60.0]})
-        self._is_streaming = True
-        idx = 0
-        while self._running:
-            row = df.iloc[idx % len(df)]
-            temp = float(row.get("temperature", 25.0))
-            hum = float(row.get("humidity", 60.0))
-            self._process_reading(temp, hum, is_simulated=True)
-            idx += 1
-            time.sleep(interval)
-
-    def _process_reading(self, temp: float, hum: float, is_simulated: bool) -> None:
-        # Step 1: Generate PC-clock timestamp in ISO format
-        now_iso = datetime.now(timezone.utc).isoformat()
-        # Step 2: Persist reading in SQLite
-        insert_reading(now_iso, temp, hum, is_simulated=is_simulated)
-
-        # Step 3: Rolling buffer for inference (keep last 15 samples)
-        self._recent_buffer.append({"timestamp": now_iso, "temperature": temp, "humidity": hum})
-        if len(self._recent_buffer) > 15:
-            self._recent_buffer.pop(0)
-
-        # Step 4: Run model detection on buffer
-        buf_df = pd.DataFrame(self._recent_buffer)
-        eval_res = detector_service.evaluate_streaming_sample(buf_df)
-        is_flagged = eval_res["flag"]
-        peak_z = eval_res["peak_z"]
-
-        # Step 5: Events aggregation service
-        closed_event = events_service.process_sample(now_iso, temp, hum, is_flagged, peak_z)
-
-        # Step 6: Package payload (with simulation tag if simulated)
-        payload = {
-            "timestamp": now_iso,
-            "temperature": temp,
-            "humidity": hum,
-            "is_simulated": is_simulated,
-            "source_label": "Simulated" if is_simulated else "Live",
-            "is_anomalous": is_flagged,
-            "score": eval_res["score"],
-            "ewma_z": eval_res["ewma_z"],
-            "peak_z": peak_z,
-            "closed_event": closed_event,
+    def get_status(self) -> Dict[str, Any]:
+        """Return current streaming and connection status."""
+        detected = detect_esp32_port()
+        return {
+            "is_streaming": self.is_streaming,
+            "stream_source": self.stream_source,
+            "current_port": self.current_port,
+            "current_baud": self.current_baud,
+            "detected_esp32_port": detected,
+            "buffered_samples": len(self.data_buffer),
+            "last_error": self.last_error,
+            "alerts_enabled": self.alert_manager.settings.enabled,
+            "active_alert_channels": self.alert_manager.settings.active_channels(),
         }
 
-        # Step 7: Broadcast to listeners (WebSockets)
-        for cb in self._listeners:
+    def list_ports(self) -> List[Dict[str, Any]]:
+        """List available COM ports with metadata, excluding Bluetooth."""
+        ports = []
+        for p in list_ports.comports():
+            desc = p.description or ""
+            if "bluetooth" in desc.lower():
+                continue
+            is_esp = any(k in desc.lower() for k in ["ch340", "cp210", "usb serial", "usb-serial", "uart", "esp32"])
+            ports.append({
+                "port": p.device,
+                "description": desc,
+                "is_esp32": is_esp,
+            })
+        return ports
+
+    def start_serial_stream(self, port: str = "COM19", baud: int = 115200) -> Dict[str, Any]:
+        """Start reading live sensor telemetry from the USB serial port."""
+        if self.is_streaming:
+            self.stop_stream()
+
+        self.stop_event.clear()
+        self.last_error = None
+        self.current_port = port
+        self.current_baud = baud
+        self.stream_source = "serial"
+        self.is_streaming = True
+
+        self.worker_thread = threading.Thread(
+            target=self._serial_worker,
+            args=(port, baud),
+            daemon=True,
+            name="ESP32-SerialWorker",
+        )
+        self.worker_thread.start()
+
+        return {"status": "started", "port": port, "baud": baud, "source": "serial"}
+
+    def start_simulation(self, dataset_name: str = "eval_suite", interval_sec: float = 1.0) -> Dict[str, Any]:
+        """Start streaming simulated data points from a recorded dataset."""
+        if self.is_streaming:
+            self.stop_stream()
+
+        self.stop_event.clear()
+        self.last_error = None
+        self.current_port = f"SIMULATED ({dataset_name})"
+        self.stream_source = "simulation"
+        self.is_streaming = True
+
+        self.worker_thread = threading.Thread(
+            target=self._simulation_worker,
+            args=(dataset_name, interval_sec),
+            daemon=True,
+            name="SimulationWorker",
+        )
+        self.worker_thread.start()
+
+        return {"status": "started", "dataset": dataset_name, "interval_sec": interval_sec, "source": "simulation"}
+
+    def stop_stream(self) -> Dict[str, Any]:
+        """Stop current serial or simulated stream."""
+        self.stop_event.set()
+        if self.worker_thread and self.worker_thread.is_alive():
+            self.worker_thread.join(timeout=2.0)
+        self.is_streaming = False
+        self.stream_source = "none"
+        if self.current_port and not self.current_port.startswith("SIMULATED"):
+            release_active_serial_port(self.current_port)
+        return {"status": "stopped"}
+
+    def _serial_worker(self, port: str, baud: int) -> None:
+        """Background worker reading from serial port."""
+        ser = None
+        last_ts = None
+        curr_thread = threading.current_thread()
+        try:
+            release_active_serial_port(port)
+            ser = open_serial_port(port, baudrate=baud, timeout=1.0)
+            register_active_serial_port(port, self.stop_event, curr_thread, ser)
+
+            while not self.stop_event.is_set():
+                line_bytes = ser.readline()
+                if not line_bytes:
+                    continue
+                parsed = parse_sensor_line(line_bytes.decode("utf-8", errors="ignore"))
+                if parsed is None:
+                    continue
+                temp, hum = parsed
+                ts = datetime.now().isoformat(timespec="seconds")
+                if ts == last_ts:
+                    continue
+                last_ts = ts
+
+                raw_item = {"timestamp": ts, "temperature": temp, "humidity": hum}
+                self.data_buffer.append(raw_item)
+
+                # Process through inference engine
+                scored_frame = inference_service.process_streaming_buffer(list(self.data_buffer))
+                if scored_frame:
+                    self.scored_history.append(scored_frame)
+                    self._handle_alert_evaluation(scored_frame, live_mode=True)
+                    self._emit_frame(scored_frame)
+
+        except Exception as exc:
+            if not self.stop_event.is_set():
+                self.last_error = str(exc)
+        finally:
+            self.is_streaming = False
+            unregister_active_serial_port(port, curr_thread)
+            if ser is not None and ser.is_open:
+                try:
+                    ser.close()
+                except Exception:
+                    pass
+
+    def _simulation_worker(self, dataset_name: str, interval_sec: float) -> None:
+        """Background worker replaying historical dataset rows."""
+        file_map = {
+            "eval_suite": PROJECT_ROOT / "data" / "processed" / "eval_test_suite.csv",
+            "pilot": PROJECT_ROOT / "data" / "processed" / "pilot_data_prepared.csv",
+            "test": PROJECT_ROOT / "data" / "processed" / "test_data_with_labels.csv",
+        }
+        path = file_map.get(dataset_name, file_map["eval_suite"])
+        if not path.exists():
+            path = PROJECT_ROOT / "data" / "raw" / "test.csv"
+
+        df = pd.read_csv(path)
+        row_idx = 0
+        total_rows = len(df)
+
+        while not self.stop_event.is_set() and row_idx < total_rows:
+            row = df.iloc[row_idx]
+            raw_item = {
+                "timestamp": datetime.now().isoformat(timespec="seconds"),
+                "temperature": float(row["temperature"]),
+                "humidity": float(row["humidity"]),
+            }
+            self.data_buffer.append(raw_item)
+
+            scored_frame = inference_service.process_streaming_buffer(list(self.data_buffer))
+            if scored_frame:
+                # Add ground truth if available in source dataset
+                if "label" in row:
+                    scored_frame["ground_truth_label"] = int(row["label"])
+                if "fault_type" in row:
+                    scored_frame["ground_truth_fault"] = str(row["fault_type"])
+
+                self.scored_history.append(scored_frame)
+                self._handle_alert_evaluation(scored_frame, live_mode=False)
+                self._emit_frame(scored_frame)
+
+            row_idx = (row_idx + 1) % total_rows
+            time.sleep(interval_sec)
+
+        self.is_streaming = False
+
+    def _handle_alert_evaluation(self, frame: Dict[str, Any], live_mode: bool) -> None:
+        """Log incidents and dispatch alerts if enabled."""
+        if frame.get("is_anomaly", False):
+            incident = {
+                "timestamp": frame["timestamp"],
+                "temperature": frame["temperature"],
+                "humidity": frame["humidity"],
+                "trigger": frame["trigger"],
+                "hybrid_score": frame["hybrid_score"],
+                "severity": "High" if frame["hybrid_score"] > 8.0 else ("Medium" if frame["hybrid_score"] > 4.5 else "Low"),
+            }
+            # Add to incident log if not duplicate
+            if not self.incident_log or self.incident_log[-1]["timestamp"] != incident["timestamp"]:
+                self.incident_log.append(incident)
+
+        # Evaluate through AlertManager
+        try:
+            self.alert_manager.evaluate_latest_row(
+                timestamp=frame["timestamp"],
+                temperature=frame["temperature"],
+                humidity=frame["humidity"],
+                is_anomaly=frame["is_anomaly"],
+                severity="Medium" if frame["is_anomaly"] else "Low",
+                description=f"Anomaly triggered by {frame['trigger']} (Score: {frame['hybrid_score']:.2f})",
+                live_mode=live_mode,
+            )
+        except Exception:
+            pass
+
+    def _emit_frame(self, frame: Dict[str, Any]) -> None:
+        """Broadcast frame to active WebSocket connections via asyncio loop."""
+        if self.broadcast_callback and self.loop and not self.loop.is_closed():
             try:
-                cb(payload)
+                asyncio.run_coroutine_threadsafe(self.broadcast_callback(frame), self.loop)
             except Exception:
                 pass
 
-    def get_status(self) -> Dict[str, Any]:
-        return {
-            "is_streaming": self._is_streaming,
-            "stream_source": self._stream_source,
-            "current_port": self._port,
-            "current_baud": self._baudrate,
-            "detected_esp32_port": self.detect_esp32_port(),
-            "last_error": self._last_error,
-        }
 
-
+# Singleton instance
 serial_service = SerialService()

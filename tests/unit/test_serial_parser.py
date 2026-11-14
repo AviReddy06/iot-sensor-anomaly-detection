@@ -85,3 +85,32 @@ def test_active_serial_port_reclaim_stops_and_closes_previous():
     # Releasing again cleanly returns False
     assert release_active_serial_port("COM99") is False
     unregister_active_serial_port("COM99", dummy_thread)
+
+
+def test_bluetooth_filtering_and_port_preference(monkeypatch):
+    import serial.tools.list_ports
+
+    class FakePort:
+        def __init__(self, device, description, hwid=""):
+            self.device = device
+            self.description = description
+            self.hwid = hwid
+
+    fake_ports = [
+        FakePort("COM1", "Communications Port (COM1)", "ACPI\\PNP0501"),
+        FakePort("COM10", "Standard Serial over Bluetooth link (COM10)", "BTHENUM\\{...}"),
+        FakePort("COM7", "Silicon Labs CP210x USB to UART Bridge (COM7)", "USB VID:PID=10C4:EA60"),
+        FakePort("COM3", "USB-SERIAL CH340 (COM3)", "USB VID:PID=1A86:7523"),
+        FakePort("COM11", "Bluetooth Device (COM11)", "BTHENUM\\{...}"),
+    ]
+    monkeypatch.setattr(serial.tools.list_ports, "comports", lambda: fake_ports)
+
+    available = list_serial_ports()
+    port_names = [p[0] for p in available]
+
+    # Bluetooth devices must be completely filtered out
+    assert "COM10" not in port_names
+    assert "COM11" not in port_names
+
+    # USB-UART adapters must be prioritized before generic communications ports
+    assert port_names == ["COM3", "COM7", "COM1"]

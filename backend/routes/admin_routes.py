@@ -87,6 +87,12 @@ def get_evaluation_metrics():
     return results
 
 
+@router.get("/serial/ports")
+def get_serial_ports():
+    # Step 1: Return port list excluding Bluetooth
+    return serial_service.list_ports()
+
+
 @router.get("/serial/status")
 def get_serial_status():
     # Step 1: Return serial service status
@@ -104,7 +110,7 @@ def start_serial_port(payload: Dict[str, Any]):
 
 @router.post("/serial/stop")
 def stop_serial_port():
-    res = serial_service.stop()
+    res = serial_service.stop_stream()
     log_audit("SERIAL_STOPPED", "admin", "Serial port connection closed")
     return res
 
@@ -113,16 +119,26 @@ def stop_serial_port():
 def start_simulation_stream(payload: Dict[str, Any]):
     dataset = str(payload.get("dataset", "test"))
     interval = float(payload.get("interval_sec", 1.0))
-    res = serial_service.start_simulation(csv_name=dataset, interval_sec=interval)
+    res = serial_service.start_simulation(dataset_name=dataset, interval_sec=interval)
     log_audit("SIMULATION_STARTED", "admin", f"Dataset: {dataset}, Interval: {interval}s")
     return res
 
 
 @router.post("/simulation/stop")
 def stop_simulation_stream():
-    res = serial_service.stop()
+    res = serial_service.stop_stream()
     log_audit("SIMULATION_STOPPED", "admin", "Simulation replay stopped")
     return res
+
+
+@router.get("/settings/sensitivity")
+def get_sensitivity():
+    return {
+        "status": "ok",
+        "sensitivity": detector_service.active_sensitivity,
+        "threshold": detector_service.active_threshold,
+        "sensitivity_map": detector_service.sensitivity_map,
+    }
 
 
 @router.post("/settings/sensitivity")
@@ -156,3 +172,61 @@ def export_alerts_csv():
 def get_audit_trail(limit: int = Query(100, ge=1, le=500)):
     # Step 1: Retrieve audit log items
     return get_audit_logs(limit=limit)
+
+
+@router.get("/datasets/overview")
+def get_datasets_overview():
+    return {
+        "datasets": [
+            {
+                "name": "Training Baseline (Clean)",
+                "rows": 34374,
+                "time_range": "9 recorded sessions (< Nov 1, 2026)",
+                "provenance": "Recorded (389 quarantined)",
+                "role": "Training",
+            },
+            {
+                "name": "Physical Pilot Data",
+                "rows": 3084,
+                "time_range": "2026-10-27 21:00:00 to 22:42:48",
+                "provenance": "Recorded (relabelled post-hoc)",
+                "role": "Development",
+            },
+            {
+                "name": "Legacy Test Set",
+                "rows": 55,
+                "time_range": "2026-10-27 22:02:14 to 22:04:05",
+                "provenance": "Recorded (single thermal event)",
+                "role": "Development",
+            },
+            {
+                "name": "Evaluation Suite",
+                "rows": 1947,
+                "time_range": "6 injected fault sequences",
+                "provenance": "Synthetic injection (seed=42)",
+                "role": "Held-out",
+            },
+        ],
+        "overlap_note": "test.csv and pilot_data.csv share 35 identical rows between 22:02:14 and 22:03:23 on 2026-10-27. The pilot has no rows for 22:03:25 to 22:04:05 where the test event is located.",
+    }
+
+
+@router.get("/datasets/download/{filename}")
+def download_dataset_csv(filename: str):
+    # Step 1: Validate and resolve allowed dataset filename
+    if filename == "clean_baseline.csv":
+        file_path = PROJECT_ROOT / "data" / "processed" / "normal_data_clean.csv"
+    elif filename == "test.csv":
+        file_path = PROJECT_ROOT / "data" / "raw" / "test.csv"
+    else:
+        raise HTTPException(status_code=404, detail="Dataset file not found.")
+
+    if not file_path.exists():
+        raise HTTPException(status_code=404, detail="File missing on disk.")
+
+    # Step 2: Return file bytes directly as attachment
+    return Response(
+        content=file_path.read_bytes(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

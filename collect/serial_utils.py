@@ -37,19 +37,23 @@ BOOT_PREFIXES = (
 
 
 def list_serial_ports() -> List[Tuple[str, str]]:
-    """Return available COM ports sorted with USB-UART adapters first."""
+    """Return available COM ports sorted with USB-UART adapters first, excluding Bluetooth."""
     ports = []
     for p in serial.tools.list_ports.comports():
         desc = (p.description or "").strip()
         hwid = (p.hwid or "").upper()
-        is_usb_uart = (
-            "USB" in hwid
-            or "CP210" in desc.upper()
+        # Phase 2 constraint: exclude any description containing Bluetooth
+        if "BLUETOOTH" in desc.upper():
+            continue
+        is_preferred = (
+            "CP210" in desc.upper()
             or "CH340" in desc.upper()
-            or "UART" in desc.upper()
+            or "USB SERIAL" in desc.upper()
             or "FTDI" in desc.upper()
+            or "UART" in desc.upper()
         )
-        ports.append((0 if is_usb_uart else 1, p.device, desc or p.device))
+        priority = 0 if is_preferred else (1 if "USB" in hwid else 2)
+        ports.append((priority, p.device, desc or p.device))
 
     ports.sort(key=lambda item: (item[0], item[1]))
     return [(device, desc) for _, device, desc in ports]
@@ -60,7 +64,7 @@ def detect_esp32_port(default: Optional[str] = None) -> str:
     fallback = default or config.serial_port
     for device, desc in list_serial_ports():
         upper = desc.upper()
-        if any(tag in upper for tag in ("CP210", "CH340", "UART", "FTDI", "USB")):
+        if any(tag in upper for tag in ("CP210", "CH340", "USB SERIAL", "UART", "FTDI")):
             return device
     available = [device for device, _ in list_serial_ports()]
     if fallback in available:

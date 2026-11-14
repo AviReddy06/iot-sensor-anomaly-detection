@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --color-paper: #EEF1EF;
+  --color-grid: #CBD5D0;
+  --color-ink: #1C2A33;
+  --color-muted: #4F5F69;
+  --color-temp: #9B2C2C;
+  --color-hum: #1D5C8C;
+  --color-band: rgba(232, 176, 74, 0.35);
+  --color-band-text: #7A4B00;
+  --color-normal: #28704A;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  background-color: #EEF1EF;
+  color: #1C2A33;
+  font-family: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.font-serif {
+  font-family: "Literata", Georgia, serif;
+}
+
+.font-sans {
+  font-family: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+}
+
+/* Tabular digits for sensor readings and time */
+.num-tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Clean square focus ring */
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #1C2A33;
+  outline-offset: 2px;
+}
+
+/* Hairline scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: #EEF1EF;
+}
+::-webkit-scrollbar-thumb {
+  background: #CBD5D0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #4F5F69;
+}

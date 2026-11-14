@@ -4,47 +4,27 @@ import { scaleLinear } from "d3-scale";
 import { line, curveMonotoneX } from "d3-shape";
 
 export default function RoomMap({ readings = [], isUnusual = false }) {
-  // Dimensions for room map phase space
   const width = 340;
-  const height = 360;
-  const margin = { top: 24, right: 20, bottom: 44, left: 50 };
+  const height = 380;
+  const margin = { top: 20, right: 20, bottom: 44, left: 48 };
   const innerWidth = width - margin.left - margin.right;
   const innerHeight = height - margin.top - margin.bottom;
 
-  // Process data for the 3 visual time horizons:
-  // 1. Last 6 hours: faint dots
-  // 2. Last 30 minutes: connected trail
-  // 3. Now: filled active dot
   const { sixHourReadings, thirtyMinReadings, latestReading, xDomain, yDomain } =
     useMemo(() => {
       if (!readings || readings.length === 0) {
-        return {
-          sixHourReadings: [],
-          thirtyMinReadings: [],
-          latestReading: null,
-          xDomain: [18, 34],
-          yDomain: [40, 85],
-        };
+        return { sixHourReadings: [], thirtyMinReadings: [], latestReading: null, xDomain: [18, 36], yDomain: [35, 85] };
       }
-
       const latest = readings[readings.length - 1];
       const latestTs = new Date(latest.timestamp).getTime();
-
       const sixHourCutoff = latestTs - 6 * 60 * 60 * 1000;
       const thirtyMinCutoff = latestTs - 30 * 60 * 1000;
 
-      const sixH = readings.filter(
-        (r) => new Date(r.timestamp).getTime() >= sixHourCutoff
-      );
-      const thirtyM = readings.filter(
-        (r) => new Date(r.timestamp).getTime() >= thirtyMinCutoff
-      );
+      const sixH = readings.filter((r) => new Date(r.timestamp).getTime() >= sixHourCutoff);
+      const thirtyM = readings.filter((r) => new Date(r.timestamp).getTime() >= thirtyMinCutoff);
 
-      // Temperature (X) domain
       const tMin = min(sixH.length ? sixH : readings, (d) => d.temperature) ?? 20;
-      const tMax = max(sixH.length ? sixH : readings, (d) => d.temperature) ?? 32;
-
-      // Humidity (Y) domain
+      const tMax = max(sixH.length ? sixH : readings, (d) => d.temperature) ?? 34;
       const hMin = min(sixH.length ? sixH : readings, (d) => d.humidity) ?? 45;
       const hMax = max(sixH.length ? sixH : readings, (d) => d.humidity) ?? 75;
 
@@ -57,196 +37,97 @@ export default function RoomMap({ readings = [], isUnusual = false }) {
       };
     }, [readings]);
 
-  // Scales
-  const xScale = useMemo(
-    () => scaleLinear().domain(xDomain).range([0, innerWidth]),
-    [xDomain, innerWidth]
-  );
-  const yScale = useMemo(
-    () => scaleLinear().domain(yDomain).range([innerHeight, 0]),
-    [yDomain, innerHeight]
-  );
+  const xScale = useMemo(() => scaleLinear().domain(xDomain).range([0, innerWidth]), [xDomain, innerWidth]);
+  const yScale = useMemo(() => scaleLinear().domain(yDomain).range([innerHeight, 0]), [yDomain, innerHeight]);
 
-  // Line generator for 30-minute trail
   const trailPath = useMemo(() => {
     if (thirtyMinReadings.length < 2) return "";
-    const l = line()
-      .x((d) => xScale(d.temperature))
-      .y((d) => yScale(d.humidity))
-      .curve(curveMonotoneX);
+    const l = line().x((d) => xScale(d.temperature)).y((d) => yScale(d.humidity)).curve(curveMonotoneX);
     return l(thirtyMinReadings) || "";
   }, [thirtyMinReadings, xScale, yScale]);
 
   const xTicks = xScale.ticks(4);
   const yTicks = yScale.ticks(4);
 
+  // Comfort zone boundaries (21°C - 26°C, 40% - 60% RH)
+  const comfortBox = {
+    x1: Math.max(0, xScale(21)),
+    x2: Math.min(innerWidth, xScale(26)),
+    y1: Math.max(0, yScale(60)),
+    y2: Math.min(innerHeight, yScale(40)),
+  };
+
   return (
-    <div className="w-full flex flex-col">
-      {/* Header bar */}
-      <div className="flex items-center justify-between pb-2 border-b border-[#CBD5D0]">
-        <div className="text-[13px] text-[#4F5F69] font-sans">
-          Temperature and humidity state space
+    <div className="w-full bg-[#111827] border border-[#1F2937] rounded-xl p-4 flex flex-col shadow-lg">
+      <div className="flex items-center justify-between pb-3 border-b border-[#1F2937]">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-cyan-500" />
+          <h3 className="text-sm font-semibold text-slate-200 tracking-wide">Phase-Space Orbit</h3>
         </div>
+        <span className="text-xs text-slate-400 font-mono">Temp vs RH</span>
       </div>
 
-      {/* SVG Canvas */}
-      <div className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-2">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          className="w-full h-auto block select-none"
-          aria-label="Room state space: temperature vs humidity"
-        >
+      <div className="relative w-full overflow-hidden mt-3">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto block select-none">
           <g transform={`translate(${margin.left}, ${margin.top})`}>
-            {/* Background Rect */}
-            <rect
-              x="0"
-              y="0"
-              width={innerWidth}
-              height={innerHeight}
-              fill="#EEF1EF"
-            />
-
-            {/* Vertical grid lines (Temperature) */}
-            {xTicks.map((tick, i) => {
-              const xPos = xScale(tick);
-              return (
-                <line
-                  key={`rx-${i}`}
-                  x1={xPos}
-                  x2={xPos}
-                  y1={0}
-                  y2={innerHeight}
-                  stroke="#CBD5D0"
-                  strokeWidth="1"
-                  strokeDasharray="2,2"
-                />
-              );
-            })}
-
-            {/* Horizontal grid lines (Humidity) */}
-            {yTicks.map((tick, i) => {
-              const yPos = yScale(tick);
-              return (
-                <line
-                  key={`ry-${i}`}
-                  x1={0}
-                  x2={innerWidth}
-                  y1={yPos}
-                  y2={yPos}
-                  stroke="#CBD5D0"
-                  strokeWidth="1"
-                  strokeDasharray="2,2"
-                />
-              );
-            })}
-
-            {/* 1. Last 6 hours: faint historical dots */}
-            {sixHourReadings.map((r, i) => (
-              <circle
-                key={`hist-${i}`}
-                cx={xScale(r.temperature)}
-                cy={yScale(r.humidity)}
-                r="1.5"
-                fill="#CBD5D0"
-                opacity="0.8"
-              />
-            ))}
-
-            {/* 2. Last 30 minutes: connected trail */}
-            {trailPath && (
-              <path
-                d={trailPath}
-                fill="none"
-                stroke="#4F5F69"
-                strokeWidth="1.25"
-                strokeDasharray="2,2"
-                opacity="0.9"
+            {/* Comfort zone guideline */}
+            {comfortBox.x2 > comfortBox.x1 && comfortBox.y2 > comfortBox.y1 && (
+              <rect
+                x={comfortBox.x1}
+                y={comfortBox.y1}
+                width={comfortBox.x2 - comfortBox.x1}
+                height={comfortBox.y2 - comfortBox.y1}
+                fill="rgba(16, 185, 129, 0.08)"
+                stroke="rgba(16, 185, 129, 0.25)"
+                strokeDasharray="3 3"
+                rx="4"
               />
             )}
 
-            {/* 3. Latest reading: filled dot */}
+            {/* Grid */}
+            {xTicks.map((tick, i) => (
+              <line key={`rxt-${i}`} x1={xScale(tick)} x2={xScale(tick)} y1={0} y2={innerHeight} stroke="#1F2937" strokeDasharray="2 2" />
+            ))}
+            {yTicks.map((tick, i) => (
+              <line key={`ryt-${i}`} x1={0} x2={innerWidth} y1={yScale(tick)} y2={yScale(tick)} stroke="#1F2937" strokeDasharray="2 2" />
+            ))}
+
+            {/* Faint dots: 6h history */}
+            {sixHourReadings.map((r, idx) => (
+              <circle key={`sh-${idx}`} cx={xScale(r.temperature)} cy={yScale(r.humidity)} r="2" fill="#475569" opacity="0.5" />
+            ))}
+
+            {/* 30-min connected trail */}
+            {trailPath && (
+              <path d={trailPath} fill="none" stroke="#38BDF8" strokeWidth="1.5" strokeDasharray="3 2" opacity="0.85" />
+            )}
+
+            {/* Active latest point */}
             {latestReading && (
               <g>
-                <circle
-                  cx={xScale(latestReading.temperature)}
-                  cy={yScale(latestReading.humidity)}
-                  r="5"
-                  fill={isUnusual ? "#7A4B00" : "#28704A"}
-                  stroke="#EEF1EF"
-                  strokeWidth="1.5"
-                />
-                <circle
-                  cx={xScale(latestReading.temperature)}
-                  cy={yScale(latestReading.humidity)}
-                  r="8"
-                  fill="none"
-                  stroke={isUnusual ? "#7A4B00" : "#28704A"}
-                  strokeWidth="1"
-                  opacity="0.5"
-                />
+                <circle cx={xScale(latestReading.temperature)} cy={yScale(latestReading.humidity)} r="8" fill="none" stroke={isUnusual ? "#F59E0B" : "#10B981"} strokeWidth="1.5" className="animate-ping opacity-60" />
+                <circle cx={xScale(latestReading.temperature)} cy={yScale(latestReading.humidity)} r="5" fill={isUnusual ? "#F59E0B" : "#10B981"} stroke="#FFFFFF" strokeWidth="1.5" />
               </g>
             )}
 
-            {/* X-axis tick labels (Temperature °C) */}
+            {/* Axis labels */}
             {xTicks.map((tick, i) => (
-              <text
-                key={`rxt-${i}`}
-                x={xScale(tick)}
-                y={innerHeight + 18}
-                textAnchor="middle"
-                fill="#4F5F69"
-                fontSize="11"
-                fontFamily="'Atkinson Hyperlegible', sans-serif"
-              >
-                {tick}°
-              </text>
+              <text key={`rxtl-${i}`} x={xScale(tick)} y={innerHeight + 16} textAnchor="middle" fill="#64748B" fontSize="10">{tick}°</text>
             ))}
+            <text x={innerWidth / 2} y={innerHeight + 32} textAnchor="middle" fill="#94A3B8" fontSize="11" fontWeight="500">Temperature (°C)</text>
 
-            {/* X-axis title */}
-            <text
-              x={innerWidth / 2}
-              y={innerHeight + 34}
-              textAnchor="middle"
-              fill="#1C2A33"
-              fontSize="12"
-              fontFamily="'Atkinson Hyperlegible', sans-serif"
-            >
-              Temperature (°C)
-            </text>
-
-            {/* Y-axis tick labels (Humidity % RH) */}
             {yTicks.map((tick, i) => (
-              <text
-                key={`ryt-${i}`}
-                x="-8"
-                y={yScale(tick) + 4}
-                textAnchor="end"
-                fill="#4F5F69"
-                fontSize="11"
-                fontFamily="'Atkinson Hyperlegible', sans-serif"
-              >
-                {tick}%
-              </text>
+              <text key={`rytl-${i}`} x="-6" y={yScale(tick) + 4} textAnchor="end" fill="#64748B" fontSize="10">{tick}%</text>
             ))}
-
-            {/* Y-axis title */}
-            <text
-              transform="rotate(-90)"
-              x={-innerHeight / 2}
-              y="-36"
-              textAnchor="middle"
-              fill="#1C2A33"
-              fontSize="12"
-              fontFamily="'Atkinson Hyperlegible', sans-serif"
-            >
-              Humidity (% RH)
-            </text>
+            <text transform="rotate(-90)" x={-innerHeight / 2} y="-32" textAnchor="middle" fill="#94A3B8" fontSize="11" fontWeight="500">Humidity (% RH)</text>
           </g>
         </svg>
 
-        {/* Legend / Caption directly below chart paper */}
-        <div className="p-2.5 border-t border-[#CBD5D0] bg-[#EEF1EF] text-[12px] text-[#4F5F69] font-sans">
-          Where the room has been
+        <div className="mt-2 py-2 px-3 bg-[#0B0F19] rounded-lg border border-[#1F2937] text-xs text-slate-400 flex items-center justify-between">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" /> Comfort zone
+          </span>
+          <span className="font-mono text-slate-500">Recent 30m trail</span>
         </div>
       </div>
     </div>

@@ -27,7 +27,7 @@ function downsampleMinMax(data, targetBuckets = 180) {
 }
 
 export default function ClientStripChart({
-  readings = [], events = [], activeRange = "1 h", onRangeChange, highlightedEvent = null,
+  readings = [], events = [], activeRange = "1 h", onRangeChange, highlightedEvent = null, isOffline = false,
 }) {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(680);
@@ -202,7 +202,7 @@ export default function ClientStripChart({
         </div>
       </div>
       <div
-        className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-6 focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
+        className={`relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-6 focus:outline-none focus:ring-2 focus:ring-[#1C2A33] ${isOffline ? "opacity-60" : ""}`}
         tabIndex={0}
         role="region"
         aria-label={ariaDescription}

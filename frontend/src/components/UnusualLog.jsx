@@ -40,7 +40,7 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
         <button
           type="button"
           onClick={() => setShowDisclosure((prev) => !prev)}
-          className="text-[13px] text-[#4F5F69] hover:text-[#1C2A33] underline transition-colors focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
+          className="print:hidden text-[13px] text-[#4F5F69] hover:text-[#1C2A33] underline transition-colors focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
         >
           {showDisclosure ? "Hide how severity is decided" : "How severity is decided"}
         </button>
@@ -85,12 +85,10 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
                       <span className="text-[#4F5F69] num-tabular">{durStr}</span>
                     </div>
                     <span
-                      className={`inline-block px-2 py-0.5 text-[13px] font-medium border ${
-                        ev.severity === "High"
-                          ? "border-[#7A4B00] text-[#7A4B00] bg-[rgba(232,176,74,0.25)]"
-                          : ev.severity === "Medium"
-                          ? "border-[#7A4B00] text-[#7A4B00]"
-                          : "border-[#4F5F69] text-[#4F5F69]"
+                      className={`text-[13px] ${
+                        ev.severity === "High" || ev.severity === "Medium"
+                          ? "text-[#7A4B00] font-bold"
+                          : "text-[#4F5F69]"
                       }`}
                     >
                       {ev.severity || "Unusual"}
@@ -167,12 +165,10 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
                       </td>
                       <td className="py-2.5">
                         <span
-                          className={`inline-block px-2 py-0.5 text-[13px] font-medium border ${
-                            ev.severity === "High"
-                              ? "border-[#7A4B00] text-[#7A4B00] bg-[rgba(232,176,74,0.25)]"
-                              : ev.severity === "Medium"
-                              ? "border-[#7A4B00] text-[#7A4B00]"
-                              : "border-[#4F5F69] text-[#4F5F69]"
+                          className={`text-[13px] ${
+                            ev.severity === "High" || ev.severity === "Medium"
+                              ? "text-[#7A4B00] font-bold"
+                              : "text-[#4F5F69]"
                           }`}
                         >
                           {ev.severity || "Unusual"}

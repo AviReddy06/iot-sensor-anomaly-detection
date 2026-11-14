@@ -51,7 +51,7 @@ export default function ClientView() {
 
   return (
     <div className="min-h-screen bg-[#EEF1EF] text-[#1C2A33] selection:bg-[#CBD5D0] pt-safe pb-safe px-safe">
-      <div className="max-w-[1120px] mx-auto px-5 sm:px-8 py-8 sm:py-10">
+      <main className="max-w-[1120px] mx-auto px-5 sm:px-8 py-8 sm:py-10">
         {/* Step 3: Header Bar - Title and Status Dot */}
         <header className="flex flex-wrap items-baseline justify-between gap-3 pb-6 border-b border-[#CBD5D0]">
           <div>
@@ -60,13 +60,10 @@ export default function ClientView() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2.5 text-[13px] text-[#4F5F69] font-sans">
+          <div className="flex items-center gap-3 text-[13px] text-[#4F5F69] font-sans">
             <span className="relative flex h-2 w-2">
-              {statusLabel === "Live" && (
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#28704A] opacity-75" />
-              )}
               <span
-                className={`relative inline-flex rounded-full h-2 w-2 ${
+                className={`relative inline-flex rounded-full h-2 w-2 ring-1 ring-[#1C2A33]/20 ${
                   statusLabel === "Live"
                     ? "bg-[#28704A]"
                     : statusLabel === "Simulated"
@@ -76,13 +73,9 @@ export default function ClientView() {
               />
             </span>
             <span className="font-medium text-[#1C2A33]">{statusLabel}</span>
-            <span className="text-[#CBD5D0]">|</span>
             <span className="text-[#4F5F69] num-tabular">{formattedTime}</span>
             {isStale && (
-              <>
-                <span className="text-[#CBD5D0]">|</span>
-                <span className="text-[#7A4B00] num-tabular">{staleText}</span>
-              </>
+              <span className="text-[#7A4B00] num-tabular">{staleText}</span>
             )}
           </div>
         </header>
@@ -130,7 +123,7 @@ export default function ClientView() {
           </div>
         )}
 
-        <section className={`grid grid-cols-1 lg:grid-cols-12 gap-8 items-start ${isOffline ? "opacity-60" : ""}`}>
+        <section className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
           <div className="lg:col-span-8 w-full">
             <ClientStripChart
               readings={readings}
@@ -138,6 +131,7 @@ export default function ClientView() {
               activeRange={activeRange}
               onRangeChange={setActiveRange}
               highlightedEvent={selectedEvent}
+              isOffline={isOffline}
             />
           </div>
 
@@ -145,6 +139,7 @@ export default function ClientView() {
             <RoomMap
               readings={readings}
               isUnusual={Boolean(statusData?.active_unusual_reading)}
+              isOffline={isOffline}
             />
           </div>
         </section>
@@ -162,7 +157,7 @@ export default function ClientView() {
           <div>
             Dungu Avinash Reddy | Roll RK3P25KZA09 | Reg. 12509090
           </div>
-          <div>
+          <div className="print:hidden">
             <a
               href="/admin"
               className="text-[#4F5F69] hover:text-[#1C2A33] transition-colors focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
@@ -171,7 +166,7 @@ export default function ClientView() {
             </a>
           </div>
         </footer>
-      </div>
+      </main>
     </div>
   );
 }

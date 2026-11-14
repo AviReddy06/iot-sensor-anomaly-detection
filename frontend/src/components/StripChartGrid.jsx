@@ -48,6 +48,10 @@ export default function StripChartGrid({
           <pattern id="data-gap-hatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
             <line x1="0" y1="0" x2="0" y2="8" stroke="#CBD5D0" strokeWidth="1" opacity="0.6" />
           </pattern>
+          {/* Diagonal hatching pattern for unusual bands in print / high-contrast modes */}
+          <pattern id="unusual-band-hatch" width="8" height="8" patternTransform="rotate(45 0 0)" patternUnits="userSpaceOnUse">
+            <line x1="0" y1="0" x2="0" y2="8" stroke="#1C2A33" strokeWidth="1.2" opacity="0.45" />
+          </pattern>
         </defs>
 
         <g transform={`translate(${margin.left}, ${margin.top})`}>
@@ -97,12 +101,14 @@ export default function StripChartGrid({
             <line key={`yh-${i}`} x1={0} x2={innerWidth} y1={yHumScale(t)} y2={yHumScale(t)} stroke="#CBD5D0" strokeWidth="1" />
           ))}
 
-          {/* Step 9: Shaded unusual event bands with darker top edge and '#1' numbering */}
+          {/* Step 9: Shaded unusual event bands with darker top edge, boundary hairlines, and '#1' numbering */}
           {visibleEventBands && visibleEventBands.map((band) => (
             <g key={`band-${band.id}`}>
-              <rect x={band.x} y={0} width={band.width} height={innerHeight} fill="rgba(232, 176, 74, 0.35)" />
-              <line x1={band.x} x2={band.x + band.width} y1={0} y2={0} stroke="#7A4B00" strokeWidth="2" />
-              <text x={band.x + 3} y={13} fill="#7A4B00" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif" fontWeight="bold">
+              <rect className="unusual-band-rect" x={band.x} y={0} width={band.width} height={innerHeight} fill="rgba(232, 176, 74, 0.35)" />
+              <line className="unusual-band-top" x1={band.x} x2={band.x + band.width} y1={0} y2={0} stroke="#7A4B00" strokeWidth="2" />
+              <line x1={band.x} x2={band.x} y1={0} y2={innerHeight} stroke="#7A4B00" strokeWidth="0.75" opacity="0.4" />
+              <line x1={band.x + band.width} x2={band.x + band.width} y1={0} y2={innerHeight} stroke="#7A4B00" strokeWidth="0.75" opacity="0.4" />
+              <text className="unusual-band-text" x={band.x + 3} y={13} fill="#7A4B00" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif" fontWeight="bold">
                 {band.label}
               </text>
             </g>
@@ -119,7 +125,7 @@ export default function StripChartGrid({
                 {directLabels.tempVal.toFixed(1)}{"\u2009"}°C
               </text>
               <text x={innerWidth + 6} y={directLabels.humY + 4} fill="#1D5C8C" fontSize="13" fontWeight="bold" fontFamily="'Atkinson Hyperlegible', sans-serif" className="num-tabular">
-                {Math.round(directLabels.humVal)}{"\u2009"}% RH
+                {directLabels.humVal.toFixed(1)}{"\u2009"}% RH
               </text>
             </g>
           )}
@@ -190,11 +196,9 @@ export default function StripChartGrid({
             ),
           }}
         >
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <span className="text-[#4F5F69] num-tabular">{hoverData.timestamp.slice(11, 19)}</span>
-            <span className="text-[#CBD5D0]">|</span>
             <span className="text-[#9B2C2C] font-bold num-tabular">{Number(hoverData.temperature).toFixed(1)}{"\u2009"}°C</span>
-            <span className="text-[#CBD5D0]">|</span>
             <span className="text-[#1D5C8C] font-bold num-tabular">{Number(hoverData.humidity).toFixed(1)}{"\u2009"}% RH</span>
           </div>
         </div>

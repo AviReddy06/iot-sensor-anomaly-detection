@@ -3,7 +3,7 @@ import { min, max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { line, curveMonotoneX } from "d3-shape";
 
-export default function RoomMap({ readings = [], events = [], isUnusual = false }) {
+export default function RoomMap({ readings = [], events = [], isUnusual = false, isOffline = false }) {
   // Step 1: Geometry & strictly square 1:1 plot area
   const plotSize = 270;
   const margin = { top: 18, right: 18, bottom: 52, left: 52 };
@@ -87,7 +87,7 @@ export default function RoomMap({ readings = [], events = [], isUnusual = false 
       <div className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-6">
         <svg
           viewBox={`0 0 ${width} ${height}`}
-          className="w-full aspect-square block select-none"
+          className={`w-full aspect-square block select-none ${isOffline ? "opacity-60" : ""}`}
           role="img"
           aria-label={latestReading ? `Room map: ${latestReading.temperature.toFixed(1)}\u2009°C, ${latestReading.humidity.toFixed(1)}\u2009% RH` : "Room map"}
         >
@@ -105,7 +105,7 @@ export default function RoomMap({ readings = [], events = [], isUnusual = false 
                   fill="rgba(40, 112, 74, 0.04)" stroke="#28704A" strokeWidth="1" strokeDasharray="3,3" opacity="0.35"
                 />
                 {cX2 - cX1 > 50 && cY2 - cY1 > 22 && (
-                  <text x={Math.max(0, cX1) + 6} y={Math.max(0, cY1) + 16} fill="#28704A" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif" opacity="0.65">
+                  <text x={Math.max(0, cX1) + 6} y={Math.max(0, cY1) + 16} fill="#28704A" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif">
                     Comfort target
                   </text>
                 )}

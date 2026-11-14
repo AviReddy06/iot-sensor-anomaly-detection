@@ -228,3 +228,108 @@ This log documents the iterative refinement passes for the client-facing page of
 2. **Touch Targets & Gestures**: Before, range selector buttons measured only $24 \times 20\text{ px}$, causing frequent mis-taps on mobile, and the chart required hovering to view values. After, all range buttons strictly satisfy the $\ge 44\text{ px}$ touch target specification (`44 \times 44\text{ px}`), and touch-drag scrubbing with `touch-none` allows effortless tactile exploration on mobile screens.
 3. **Room Map Sizing**: Before, on tablet viewports the RoomMap could stretch up to 704 px wide. After, the RoomMap is bounded by a crisp 360 px ceiling (`max-w-[360px]`), centered cleanly.
 4. **System State Transparency**: Before, offline, waiting, stale, and unreachable states were ambiguous or missing explicit customer copy. After, when offline, charts dim to 60% opacity beneath an explicit status banner `"Sensor offline since 11:32. Showing the last readings."`; telemetry older than 20 s appends `"Last reading 3 min ago."` to the status line; waiting states instruct the customer `"Collecting readings. Charts appear after about a minute."`; and connection drops display `"Cannot reach the monitor. Retrying in 10 s."` with smooth backoff and zero UI flashing.
+
+---
+
+## Area C: Colour, Contrast, and Accessibility
+
+### Concrete Numbered Critique of Area C Defects (Prior to Changes)
+
+1. **Absence of Print Stylesheet & Background Paper Pure Whiteness**:
+   - *Element*: `frontend/src/index.css:18-26`, `frontend/src/views/ClientView.jsx:53`.
+   - *Defect*: In print preview / export, background remains cream `#EEF1EF` (L=0.865) rather than pure white `#FFFFFF` (L=1.000). Missing `@media print` rules enforcing `#ffffff` paper, `print-color-adjust: exact`, and `-webkit-print-color-adjust: exact`.
+
+2. **Solid Tint on Unusual Bands in Print Output (Missing Monochrome Hatching Pattern)**:
+   - *Element*: `frontend/src/components/StripChartGrid.jsx:48-51, 101-109`.
+   - *Defect*: Unusual event bands render as a semi-transparent straw wash `rgba(232, 176, 74, 0.35)` with 0% hatching. Print requirement R4 dictates: *"bands as hatching on Playwright PDF export"*. Lacks SVG `<pattern id="unusual-band-hatch">` and print-media fill substitution.
+
+3. **Interactive UI Controls Leaking into Print Media**:
+   - *Element*: `frontend/src/views/ClientView.jsx:167-172`, `frontend/src/components/ClientStripChart.jsx:187-202`, `frontend/src/components/UnusualLog.jsx:40-46`.
+   - *Defect*: Range selector buttons (4 buttons, 44x44 px touch targets), disclosure toggle button, and "Admin login" navigation anchor render in print output. Interactive controls have zero utility on printed paper. Missing `.print:hidden` / `@media print` suppression.
+
+4. **Page Break Fragmentation Across Charts and Ledger Table**:
+   - *Element*: `frontend/src/views/ClientView.jsx:133, 153`, `frontend/src/components/UnusualLog.jsx:108`.
+   - *Defect*: Chart layout container (308 px tall) and event log table lack `break-inside: avoid` / `page-break-inside: avoid`, risking split panels or truncated rows across physical paper page boundaries.
+
+5. **Absence of Forced-Colors Mode (`@media (forced-colors: active)`) SVG Safeguards**:
+   - *Element*: `frontend/src/index.css`, `frontend/src/components/StripChartGrid.jsx:37-45`, `frontend/src/components/RoomMap.jsx:89-94`.
+   - *Defect*: Zero `@media (forced-colors: active)` rules and missing `forced-color-adjust: none` on chart SVGs. System high-contrast mode risks converting SVG trace strokes to uniform system canvas text or masking paper rulings.
+
+6. **Continuous `animate-ping` Radar Pulse on Live Status Dot (Motion Rule Violation)**:
+   - *Element*: `frontend/src/views/ClientView.jsx:65-67`.
+   - *Defect*: Looping animation `animate-ping` pulses continuously (1s infinite period), directly violating the motion covenant (*"Motion: exactly one non-interactive moment, the two traces drawing left to right once on first load (700 ms)"*). Creates continuous visual distraction on a quiet instrument interface.
+
+7. **Residual SaaS Pill/Chip Badges on Event Severity**:
+   - *Element*: `frontend/src/components/UnusualLog.jsx:88-97, 170-179`.
+   - *Defect*: Event severity is enclosed in bordered chip containers (`border border-[#7A4B00] bg-[rgba(232,176,74,0.25)] px-2 py-0.5`). Violates anti-generic design system rules banning card chrome and chip badges.
+
+8. **Pipe Separator (`|`) Meta Delimiters in Status Line and Floating Tooltip**:
+   - *Element*: `frontend/src/views/ClientView.jsx:79, 83`, `frontend/src/components/StripChartGrid.jsx:195, 197`.
+   - *Defect*: 4 occurrences of hardcoded pipe characters (`<span className="text-[#CBD5D0]">|</span>`). Violates design principle banning meta-string delimiter templates ("A · B · C" / "A | B | C").
+
+9. **Unusual Event Bands Vertical Boundary Hairlines (WCAG Non-Text Contrast Floor)**:
+   - *Element*: `frontend/src/components/StripChartGrid.jsx:101-109`.
+   - *Defect*: Straw band fill (`rgba(232,176,74,0.35)`, composite `#ECDAB5`) has only 1.21:1 contrast against `#EEF1EF` paper. While the top edge has a 2px `#7A4B00` rule (6.52:1), vertical interval start/end boundaries lack bounding strokes.
+
+10. **Humidity Numerical Decimal Precision Inconsistency in Direct Labels**:
+    - *Element*: `frontend/src/components/StripChartGrid.jsx:122`, `frontend/src/views/ClientView.jsx:110`.
+    - *Defect*: Line-end direct label truncates humidity to integer via `Math.round(directLabels.humVal)` (e.g. `59 % RH`), whereas ClientView displays 1 decimal place `Number(currentHum).toFixed(1)` (e.g. `58.6 % RH`).
+
+11. **Colorblindness/Greyscale Indicator Shape Redundancy**:
+    - *Element*: `frontend/src/views/ClientView.jsx:69-76`.
+    - *Defect*: In greyscale, the 8x8 px status dots rely primarily on text next to them; adding a subtle 1px border or distinct outline ring to the dot enhances non-color shape discernment.
+
+12. **Comfort Target Text Contrast & Design Tokens Documentation Gap in `docs/design.md`**:
+    - *Element*: `frontend/src/components/RoomMap.jsx:108`, `docs/design.md:37-51`.
+    - *Defect*: "Comfort target" text in RoomMap used `opacity="0.65"` with `#28704A`, dropping contrast to 2.71:1 (< 4.5:1 AA). `docs/design.md` color table documents tokens solely against paper `#EEF1EF`, omitting print tokens (`#FFFFFF`), hatched band specifications, and verified deuteranopia/greyscale contrast calculations.
+
+13. **Offline Mode Text Color Contrast Degradation (Parent Section Opacity-60 Cascade)**:
+    - *Element*: `frontend/src/views/ClientView.jsx:126`.
+    - *Defect*: Applying `opacity-60` to the parent `<section>` element cascaded 60% opacity onto all nested HTML text elements (chart title, four 44px range buttons, RoomMap title, and RoomMap caption), reducing text contrast from 5.82:1 and 12.93:1 down to 2.55:1 and 3.86:1 against `#EEF1EF`. In default offline mode, axe-core flagged 7 serious WCAG 2.1 AA `color-contrast` violations.
+
+### Area C Written Reflection (Requirement R4)
+
+#### Question 1: What is the one memorable element?
+> **Answer**:  
+> The single memorable element is the **continuous dual-pen capillary ink recording across cream chart paper**—the oxblood red (`#9B2C2C`) temperature trace and navy blue (`#1D5C8C`) humidity trace drawn over charcoal rulings (`#CBD5D0`), anchored by direct line-end reading labels (`26.2\u2009°C` and `58.6\u2009% RH`) that travel dynamically at the right margin without overlapping. Paired with the square 1:1 phase-space room map ("Where the room has been") tracking a 30-minute ink trajectory, this pairing decisively anchors the digital thermohygrograph metaphor. It does not feel like an abstract SaaS analytics dashboard; it presents as an authentic physical drum recorder. Boldness is concentrated entirely in these continuous ink paths, allowing all surrounding layout and type to remain quiet, austere, and disciplined.
+
+#### Question 2: What would you remove ("remove one accessory")?
+> **Answer**:  
+> Following Chanel’s advice to "take a look in the mirror and remove one accessory," we removed the **continuous looping CSS `animate-ping` radar pulse on the Live status dot** in `ClientView.jsx`. While intended to signal live telemetry, an infinite pulsing radar ring introduces continuous non-interactive motion that directly violates the core motion covenant: *"Motion: exactly one non-interactive moment, the two traces drawing left to right once on first load (700 ms). Everything else answers a user action in 150 ms."* A physical laboratory instrument does not pulse; it records steadily. Stripping this ping away removes visual chatter and restores calm, dignified instrument stillness. (Additionally, hardcoded pipe separators `|` in the status header and tooltip were stripped in favor of typographic whitespace).
+
+#### Question 3: Is anything still generic, and what is the specific "one last revision"?
+> **Answer**:  
+> The severity indicator column in `UnusualLog.jsx` still carried the tell of a generic web template: severity ("High", "Medium", "Low") was rendered as an enclosed rectangular chip badge with a 1px border and a tinted pill fill (`border border-[#7A4B00] bg-[rgba(232,176,74,0.25)]`). Enclosed chip badges are a ubiquitous trope of modern dashboard kits.  
+> **The One Last Revision**:  
+> We stripped away the enclosing border box and pill background on severity values in `UnusualLog.jsx`. Severity is now rendered strictly as **pure typographic ink**: High and Medium in bold amber (`#7A4B00`, Atkinson Hyperlegible 700), and Low in muted ink (`#4F5F69`, Atkinson Hyperlegible 400). This eliminated the final residual SaaS card-kit artifact and transformed the table into an authentic printed instrument logbook.
+
+### Changes Implemented
+
+- **Area**: Area C — Colour, Contrast, and Accessibility
+- **Screenshots**:
+  - Before: `docs/screenshots/refine_before_C_1440.png`, `docs/screenshots/refine_before_C_390.png`
+  - After: `docs/screenshots/refine_after_C_1440.png`, `docs/screenshots/refine_after_C_390.png`
+  - Print Export: `docs/screenshots/client_print.pdf`, `docs/screenshots/client_print_preview.png`
+
+| # | Defect Addressed | Concrete Change | File Modified |
+|---|------------------|-----------------|---------------|
+| 1 | Defect 1 (Missing print stylesheet & white paper) | Added `@media print` rules enforcing pure white `#ffffff` paper, `print-color-adjust: exact`, and `-webkit-print-color-adjust: exact`. | `frontend/src/index.css` |
+| 2 | Defect 5 (Missing forced-colors mode) | Added `@media (forced-colors: active)` safeguards: SVG text `CanvasText`, temp trace `Highlight`, humidity trace `CanvasText` with dashed pattern `4, 3`, and active button border `Highlight`. | `frontend/src/index.css` |
+| 3 | Defect 2 (Missing monochrome print hatching) | Implemented SVG `<pattern id="unusual-band-hatch">` and applied `.unusual-band-rect { fill: url(#unusual-band-hatch) !important; }` in print mode without using forbidden CSS gradients. | `frontend/src/components/StripChartGrid.jsx`, `frontend/src/index.css` |
+| 4 | Defect 9 (Unusual band vertical boundary hairlines) | Added start and end vertical bounding hairlines (`#7A4B00`, 0.75px, opacity 0.4) on unusual event bands for non-text boundary clarity. | `frontend/src/components/StripChartGrid.jsx` |
+| 5 | Defect 10 (Direct label humidity precision) | Standardized humidity direct label precision to 1 decimal place (`${directLabels.humVal.toFixed(1)}\u2009% RH`), matching ClientView current reading format. | `frontend/src/components/StripChartGrid.jsx` |
+| 6 | Defect 8 (Tooltip pipe separator removal) | Replaced hardcoded `|` pipe separator in floating crosshair tooltip with semantic typographic spacing (`gap-2.5`). | `frontend/src/components/StripChartGrid.jsx` |
+| 7 | Defect 6 (Continuous animate-ping radar pulse) | Removed infinite `animate-ping` span on Live status dot, restoring the single non-interactive motion covenant and instrument calm. | `frontend/src/views/ClientView.jsx` |
+| 8 | Defect 8 & 11 (Header pipes, dot ring, <main> landmark) | Replaced header status pipe separators with semantic `gap-3` spacing, added subtle `ring-1 ring-[#1C2A33]/20` outline to status dot for shape discernment, and wrapped primary content in semantic `<main>` landmark. | `frontend/src/views/ClientView.jsx` |
+| 9 | Defect 3 (Interactive controls and admin link in print) | Suppressed range selector buttons, severity disclosure button, and admin login footer link under `@media print` via `.print:hidden` and CSS rules. | `frontend/src/views/ClientView.jsx`, `frontend/src/components/UnusualLog.jsx`, `frontend/src/index.css` |
+| 10 | Defect 12 (Comfort target text opacity) | Removed `opacity="0.65"` on `<text fill="#28704A">` in RoomMap, elevating contrast from 2.71:1 to 5.27:1 (exceeding WCAG AA 4.5:1). | `frontend/src/components/RoomMap.jsx` |
+| 11 | Defect 7 (Residual SaaS pill badges on severity) | Removed bordered chip/pill containers from severity column in mobile cards and desktop table; rendered pure typographic ink (amber bold for High/Medium, muted for Low). | `frontend/src/components/UnusualLog.jsx` |
+| 12 | Defect 1 & 12 (Documentation & PDF automation) | Created `scripts/capture_client_pdf.py` producing verified vector A4 PDF (`client_print.pdf`); updated `docs/design.md` with verified contrast table and print tokens. | `scripts/capture_client_pdf.py`, `docs/design.md`, `docs/refinement_log.md` |
+| 13 | Defect 13 (Offline contrast failure from section opacity-60) | Relocated `opacity-60` from parent `<section>` directly to chart viewport container in `ClientStripChart` and `<svg>` in `RoomMap`, preserving 100% full contrast on text buttons and captions (0 axe-core violations). | `frontend/src/views/ClientView.jsx`, `frontend/src/components/ClientStripChart.jsx`, `frontend/src/components/RoomMap.jsx` |
+
+### Visual Comparison Summary (Before vs After)
+
+1. **Print & PDF Output**: Before, printing or exporting to PDF produced a cream background `#EEF1EF`, flat semi-transparent straw bands, and interactive range buttons. After, print output renders pure crisp white `#ffffff` paper, vector diagonal hatching on unusual bands, page-break avoidance, and zero interactive chrome.
+2. **Visual Restraint & Dignity**: Before, a continuous `animate-ping` radar pulse flashed on the Live status dot, pipe characters (`|`) cluttered status and tooltip readouts, and event severity was boxed in SaaS chip badges. After, all pulsing motion is eliminated, delimiters use clean typographic whitespace, and severity is presented as pure typographic ink in authentic ledger style.
+3. **Accessibility & Contrast**: Before, the "Comfort target" text in the RoomMap failed WCAG AA (2.71:1), and high-contrast / forced-colors modes risked illegible SVG traces. After, every text element achieves $\ge 5.27:1$ contrast against paper and $\ge 6.23:1$ in print, and forced-colors mode preserves temperature (`Highlight`) and humidity (dashed `CanvasText`) trace differentiation.
+4. **Offline Mode Contrast Architecture**: Before, applying `opacity-60` to the parent `<section>` in offline mode degraded all buttons (`15 min`, `1 h`, `6 h`, `All`), headings, and captions to 2.55:1 and 3.86:1 contrast, causing 7 axe-core violations. After, `opacity-60` is applied directly and exclusively to the chart viewport containers and SVGs; all interactive buttons, headings, and captions retain 100% full contrast (5.82:1 to 12.93:1), achieving 0 axe-core violations in offline mode.

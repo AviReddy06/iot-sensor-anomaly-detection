@@ -100,3 +100,97 @@ select:focus-visible {
 ::-webkit-scrollbar-thumb:hover {
   background: #4F5F69;
 }
+
+/* Step 8: Print stylesheet architecture & high-fidelity PDF export */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 12mm 15mm;
+  }
+
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    animation: none !important;
+    transition: none !important;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #1C2A33 !important;
+  }
+
+  /* Enforce pure white paper across all cream container elements */
+  .bg-\[\#EEF1EF\],
+  rect[fill="#EEF1EF"] {
+    background-color: #ffffff !important;
+    background: #ffffff !important;
+    fill: #ffffff !important;
+  }
+
+  /* Monochrome / diagonal hatching for unusual bands in print */
+  .unusual-band-rect {
+    fill: url(#unusual-band-hatch) !important;
+  }
+
+  .unusual-band-top {
+    stroke: #1C2A33 !important;
+  }
+
+  .unusual-band-text {
+    fill: #1C2A33 !important;
+  }
+
+  /* Eliminate interactive controls, scrub crosshairs, scrollbars, and admin links */
+  .print\:hidden,
+  button,
+  a[href="/admin"],
+  ::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* Prevent pagination awkwardness */
+  header,
+  section,
+  table,
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+}
+
+/* Step 9: Forced-colors mode accessibility */
+@media (forced-colors: active) {
+  svg path,
+  svg line,
+  svg circle {
+    forced-color-adjust: none;
+  }
+  svg text {
+    fill: CanvasText !important;
+  }
+  path[stroke="#9B2C2C"] {
+    stroke: Highlight !important;
+    stroke-width: 2px !important;
+  }
+  path[stroke="#1D5C8C"] {
+    stroke: CanvasText !important;
+    stroke-width: 2px !important;
+    stroke-dasharray: 4, 3 !important;
+  }
+  .unusual-band-rect {
+    fill: url(#unusual-band-hatch) !important;
+    forced-color-adjust: none;
+  }
+  button[class*="border-b-2"] {
+    border-bottom-color: Highlight !important;
+  }
+}

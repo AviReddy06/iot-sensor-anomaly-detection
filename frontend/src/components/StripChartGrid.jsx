@@ -112,10 +112,10 @@ export default function StripChartGrid({
           {directLabels && (
             <g>
               <text x={innerWidth + 6} y={directLabels.tempY + 4} fill="#9B2C2C" fontSize="13" fontWeight="bold" fontFamily="'Atkinson Hyperlegible', sans-serif" className="num-tabular">
-                {directLabels.tempVal.toFixed(1)} °C
+                {directLabels.tempVal.toFixed(1)}{"\u2009"}°C
               </text>
               <text x={innerWidth + 6} y={directLabels.humY + 4} fill="#1D5C8C" fontSize="13" fontWeight="bold" fontFamily="'Atkinson Hyperlegible', sans-serif" className="num-tabular">
-                {Math.round(directLabels.humVal)}% RH
+                {Math.round(directLabels.humVal)}{"\u2009"}% RH
               </text>
             </g>
           )}
@@ -189,9 +189,9 @@ export default function StripChartGrid({
           <div className="flex items-center gap-2">
             <span className="text-[#4F5F69] num-tabular">{hoverData.timestamp.slice(11, 19)}</span>
             <span className="text-[#CBD5D0]">|</span>
-            <span className="text-[#9B2C2C] font-bold num-tabular">{Number(hoverData.temperature).toFixed(1)} °C</span>
+            <span className="text-[#9B2C2C] font-bold num-tabular">{Number(hoverData.temperature).toFixed(1)}{"\u2009"}°C</span>
             <span className="text-[#CBD5D0]">|</span>
-            <span className="text-[#1D5C8C] font-bold num-tabular">{Number(hoverData.humidity).toFixed(1)}% RH</span>
+            <span className="text-[#1D5C8C] font-bold num-tabular">{Number(hoverData.humidity).toFixed(1)}{"\u2009"}% RH</span>
           </div>
         </div>
       )}

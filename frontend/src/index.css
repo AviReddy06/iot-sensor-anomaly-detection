@@ -27,10 +27,20 @@ body {
 
 .font-serif {
   font-family: "Literata", Georgia, serif;
+  font-weight: 500;
 }
 
 .font-sans {
   font-family: "Atkinson Hyperlegible", system-ui, -apple-system, sans-serif;
+}
+
+/* Text wrap balance and pretty for editorial headlines and copy */
+.text-balance {
+  text-wrap: balance;
+}
+
+.text-pretty {
+  text-wrap: pretty;
 }
 
 /* Tabular digits for sensor readings and time */

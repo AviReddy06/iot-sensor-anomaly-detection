@@ -84,12 +84,12 @@ export default function RoomMap({ readings = [], events = [], isUnusual = false 
       <div className="flex items-center justify-between pb-2 border-b border-[#CBD5D0]">
         <div className="text-[13px] text-[#4F5F69] font-sans">Room map</div>
       </div>
-      <div className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-2">
+      <div className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-6">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           className="w-full aspect-square block select-none"
           role="img"
-          aria-label={latestReading ? `Room map: ${latestReading.temperature.toFixed(1)} °C, ${latestReading.humidity.toFixed(1)} % RH` : "Room map"}
+          aria-label={latestReading ? `Room map: ${latestReading.temperature.toFixed(1)}\u2009°C, ${latestReading.humidity.toFixed(1)}\u2009% RH` : "Room map"}
         >
           <g transform={`translate(${margin.left}, ${margin.top})`}>
             {/* Background canvas */}

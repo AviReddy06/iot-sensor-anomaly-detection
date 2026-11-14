@@ -158,7 +158,7 @@ export default function ClientStripChart({
     const tMin = min(filteredReadings, (d) => d.temperature), tMax = max(filteredReadings, (d) => d.temperature);
     const hMin = min(filteredReadings, (d) => d.humidity), hMax = max(filteredReadings, (d) => d.humidity);
     const tTime = latest.timestamp.length >= 16 ? latest.timestamp.slice(11, 16) : latest.timestamp;
-    return `Continuous dual-trace strip chart for ${activeRange} range. Temperature spans ${tMin.toFixed(1)} to ${tMax.toFixed(1)} °C. Humidity spans ${Math.round(hMin)} to ${Math.round(hMax)} % RH. Latest reading at ${tTime}: ${latest.temperature.toFixed(1)} °C and ${Math.round(latest.humidity)} % RH. Press Left and Right arrow keys to inspect values along the timeline.`;
+    return `Continuous dual-trace strip chart for ${activeRange} range. Temperature spans ${tMin.toFixed(1)} to ${tMax.toFixed(1)}\u2009°C. Humidity spans ${Math.round(hMin)} to ${Math.round(hMax)}\u2009% RH. Latest reading at ${tTime}: ${latest.temperature.toFixed(1)}\u2009°C and ${Math.round(latest.humidity)}\u2009% RH. Press Left and Right arrow keys to inspect values along the timeline.`;
   }, [filteredReadings, activeRange]);
 
   // Step 7: Visible event highlight bands with '#1' naming
@@ -195,7 +195,7 @@ export default function ClientStripChart({
         </div>
       </div>
       <div
-        className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-2 focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
+        className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-6 focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
         tabIndex={0}
         role="region"
         aria-label={ariaDescription}

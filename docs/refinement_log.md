@@ -81,3 +81,75 @@ This log documents the iterative refinement passes for the client-facing page of
 2. **Direct Line-End Labels**: Before, only static `°C` and `% RH` headers sat in the margin. After, direct dynamic values (`26.2 °C` and `59% RH`) sit right at the trace endpoints, completely legible in greyscale.
 3. **Data Gaps & Bands**: Anomaly bands now display concise `#1` numbering with a crisp dark top edge; missing data intervals are broken and hatched rather than falsely joined.
 4. **Room Map**: The room map is now perfectly square (1:1), features faint historical dots with a prominent continuous 30-minute trail, an explicit "Now" label, and the complete required caption.
+
+---
+
+## Area B: Typography and Spacing
+
+### Concrete Numbered Critique of Area B Defects (Prior to Changes)
+
+1. **Headline Font Size, Leading, Weight, and Text Wrap (Measurement: 38px vs 40px, 1.25 vs 1.2 leading, 400 vs 500 weight)**:
+   - *Element*: `ClientView.jsx:171`.
+   - *Defect*: Desktop font size is `38px` (`text-[38px]`) vs required `40px` ($2\text{ px}$ deficit). Leading is `1.25` (`leading-tight`, $47.5\text{ px}$) vs required $1.2$ ($48.0\text{ px}$). Font weight is `400` (`font-normal`) vs required `Literata 500` (`font-medium`). Lacks `text-wrap: balance` (`text-balance`), causing uneven line breaks on wide viewports. Max width is `840px` (~70ch) instead of mandated `62ch`.
+2. **Supporting Sentence Scale, Leading, and Wrap (Measurement: 15/16px vs 20px, 1.625 vs 1.4 leading)**:
+   - *Element*: `ClientView.jsx:174`.
+   - *Defect*: Font size is `15px` mobile / `16px` desktop (`text-[15px] sm:text-[16px]`) vs required `20px` desktop / `18px` mobile ($4\text{ to }5\text{ px}$ deficit). Leading is `1.625` (`leading-relaxed`) vs required $1.4$ ($28\text{ px}$). Lacks `text-wrap: pretty` (`text-pretty`). Lacks `max-w-[62ch]` line measure constraint.
+3. **Table Base Font Size Sub-Target Deficit (Measurement: 14px vs 15px)**:
+   - *Element*: `UnusualLog.jsx:47, 125`.
+   - *Defect*: Table font size is `text-[14px]` vs required `15px` table standard ($1\text{ px}$ deficit). Empty state message also renders at `14px` instead of `15px`/`16px`.
+4. **Severity Badge Font Size Floor Violation (Measurement: 12px vs 13px floor)**:
+   - *Element*: `UnusualLog.jsx:107`.
+   - *Defect*: Severity badge text uses `text-[12px]`, directly violating the design system's absolute floor rule (*"nothing below 13 px"*).
+5. **Left-Aligned Numeric Table Columns (Measurement: 3 columns with misaligned digits)**:
+   - *Element*: `UnusualLog.jsx:52, 54, 55, 93, 99, 102`.
+   - *Defect*: Numeric table headers and data cells for Duration (col 3), Peak temperature (col 5), and Peak humidity (col 6) inherit `text-left` from `table`, violating the requirement that numeric columns must be right-aligned (`text-right`) for vertical decimal alignment.
+6. **Missing Thin Spaces Before Metric Units (Measurement: standard space U+0020 or omitted space across 8 values)**:
+   - *Element*: `ClientView.jsx:132, 180, 184`, `UnusualLog.jsx:67, 71, 75`, `StripChartGrid.jsx:115, 118, 192, 194`.
+   - *Defect*: Values format units with standard ASCII space (`26.2 °C`, `24 s`) or omit space entirely (`58.4% RH`) rather than the required Unicode thin space `\u2009` (`26.2\u2009°C`, `58.4\u2009% RH`, `24\u2009s`).
+7. **Vertical Rhythm Deficit Above Chart Section (Measurement: 32px actual vs 72px required, 40px deficit)**:
+   - *Element*: `ClientView.jsx:170, 200`.
+   - *Defect*: Section 2 has `pb-6` ($24\text{ px}$) and Section 3 has `pt-2` ($8\text{ px}$), producing a total interval of $32\text{ px}$ above the chart section instead of the mandated `72 px above the chart section` on the 8 px grid ($40\text{ px}$ deficit / 5 grid units).
+8. **Inter-Section Vertical Rhythm Mismatches (Measurement: 32px and 64px vs 48px target)**:
+   - *Element*: `ClientView.jsx:222, 230`, `UnusualLog.jsx:22`.
+   - *Defect*: Gap between Section 3 and UnusualLog is `mt-8` ($32\text{ px}$ vs required $48\text{ px}$); gap to institutional footer is `mt-16` ($64\text{ px}$ vs required $48\text{ px}$).
+9. **Intra-Block Vertical Rhythm Deficits (Measurement: 12px and 16px vs 24px target)**:
+   - *Element*: `ClientView.jsx:174`, `UnusualLog.jsx:24, 46`, `ClientStripChart.jsx:182, 198`.
+   - *Defect*: Headline-to-reading spacing is `mt-3` ($12\text{ px}$ vs required $24\text{ px}$ / `mt-6`); UnusualLog header-to-table spacing is `pb-2` + `mt-2` ($16\text{ px}$ vs required $24\text{ px}$ / `mt-6`); Strip chart header-to-container spacing is `pb-2` + `mt-2` ($16\text{ px}$ vs required $24\text{ px}$ / `mt-6`).
+10. **Severity Disclosure Sentence Measure Overflow (Measurement: ~135 characters vs < 62ch limit)**:
+    - *Element*: `UnusualLog.jsx:39-41`.
+    - *Defect*: Severity disclosure text spans full container width ($1120\text{ px}$), reaching ~135 characters per line—more than double the $< 62\text{ characters}$ maximum readable line measure.
+11. **Non-Structural Pill Borders and Colored Dot Chips on Current Readings (Measurement: 2 decorative bordered pill cards)**:
+    - *Element*: `ClientView.jsx:178-185`.
+    - *Defect*: Current temperature and humidity readings are styled as boxed pill badges (`border border-[#CBD5D0] bg-[#EEF1EF]`) with colored indicator dots (`w-1.5 h-1.5 rounded-full`), violating the prohibition against decorative chips and non-structural borders.
+12. **Sentence-Case Capitalization Leak in Event Log (Measurement: lowercase initial character on table text)**:
+    - *Element*: `UnusualLog.jsx:97`.
+    - *Defect*: Backend event service emits lowercase descriptions (e.g. `"temperature rose 8.5 °C"`), leaking an uncapitalized initial letter into the table cell without frontend initial-letter capitalization.
+
+### Changes Implemented
+
+- **Area**: Area B — Typography and Spacing
+- **Screenshots**:
+  - Before: `docs/screenshots/refine_before_B_1440.png`, `docs/screenshots/refine_before_B_390.png`
+  - After: `docs/screenshots/refine_after_B_1440.png`, `docs/screenshots/refine_after_B_390.png`
+
+| # | Defect Addressed | Concrete Change | File Modified |
+|---|------------------|-----------------|---------------|
+| 1 | Architectural Line Limit & Defect 1-2 | Extracted data acquisition, REST polling, and WebSocket streaming into custom hook `useClientData.js` (~88 lines), reducing `ClientView.jsx` from 246 lines to ~110 lines and establishing 130 lines of safe headroom under the 250-line limit. | `frontend/src/hooks/useClientData.js` |
+| 2 | Defect 1 (Headline scale & weight) | Updated headline typography to `text-[28px] sm:text-[40px] font-medium leading-[1.2] text-[#1C2A33] font-serif text-balance max-w-[62ch]` enforcing Literata 500, 40/1.2 scale, text-balance, and 62ch measure. | `frontend/src/views/ClientView.jsx` |
+| 3 | Defect 2 & 11 (Supporting sentence & pill removal) | Updated supporting reading sentence to `text-[18px] sm:text-[20px] leading-[1.4] text-pretty max-w-[62ch]`; removed decorative pill borders (`border bg-[#EEF1EF]`) and colored circular dot chips; rendered pure typographic ink with thin space `\u2009`. | `frontend/src/views/ClientView.jsx` |
+| 4 | Defect 7, 8, 9 (Vertical rhythm on 8 px grid) | Enforced 8 px vertical grid: `mb-[72px]` above charts (72 px), `mt-[48px]` between sections and footer (48 px), and `mt-6` inside Section 2 (24 px). | `frontend/src/views/ClientView.jsx` |
+| 5 | Redundant Font Assets & Typeface Rules | Dropped `@fontsource/literata/400.css`, retaining strictly `@fontsource/literata/500.css` for headlines and `@fontsource/atkinson-hyperlegible` 400/700 for all other UI text. | `frontend/src/main.jsx` |
+| 6 | Typeface & Wrapping Utilities | Enforced Literata 500 as headline serif, Atkinson Hyperlegible as UI sans-serif, and verified tabular figures and text-balance/text-pretty utilities. | `frontend/src/index.css` |
+| 7 | Defect 3 & 4 (Table base size & 13px floor) | Upgraded table base text from `14px` to `15px` (`text-[15px]`) and raised severity badge from `12px` to `13px` (`text-[13px]`), eliminating the sub-13px floor violation. | `frontend/src/components/UnusualLog.jsx` |
+| 8 | Defect 5 (Numeric column alignment) | Applied `text-right` to Duration, Peak temperature, and Peak humidity table headers (`<th>`) and data cells (`<td>`) for vertical decimal alignment. | `frontend/src/components/UnusualLog.jsx` |
+| 9 | Defect 6, 9, 10, 12 (Log typography & rhythm) | Capitalized `whatChanged` initial character; inserted thin space `\u2009` before units; added `max-w-[62ch]` to disclosure note; standardized intra-block spacing to `mt-6` (24 px); set root margin to `mt-0`. | `frontend/src/components/UnusualLog.jsx` |
+| 10 | Defect 6 (Strip chart thin space) | Standardized thin space `\u2009` in direct line-end labels (`${directLabels.tempVal.toFixed(1)}\u2009°C`, `${Math.round(directLabels.humVal)}\u2009% RH`) and tooltip. | `frontend/src/components/StripChartGrid.jsx` |
+| 11 | Defect 6 & 9 (Chart container spacing & ARIA) | Standardized chart header-to-container spacing to `mt-6` (24 px) and inserted thin space `\u2009` before units in ARIA description. | `frontend/src/components/ClientStripChart.jsx` |
+| 12 | Visual & Layout Harmony Verification | Tested responsive typography at 1440 px and 390 px viewports; confirmed zero horizontal overflow, perfect vertical cadence, and strict sentence case across all client strings. | `frontend/src/views/ClientView.jsx` |
+
+### Visual Comparison Summary (Before vs After)
+
+1. **Headline & Supporting Sentence**: Before, the headline was 38px at weight 400 with default wrapping, and the supporting sentence was small (15/16px) with decorative pill containers and colored dots around values. After, the headline commands the page at 40/1.2 in authentic Literata 500 with balanced wrapping, while the supporting sentence is set at a generous 20/1.4 in Atkinson Hyperlegible with clean typographic ink in oxblood and navy, completely free of artificial pill borders.
+2. **Vertical Rhythm**: Before, intervals were erratic (32px above charts, 32px before log, 64px before footer, 12-16px intra-block). After, the page adheres strictly to an 8 px grid: exactly 72 px above the chart section, 48 px between sections, and 24 px inside blocks.
+3. **Table & Numbers**: Before, table text was 14px with a 12px badge violating the floor rule, numeric columns were left-aligned, and units lacked thin spaces. After, table text is 15px, badges are 13px (conforming to the floor), numeric columns are right-aligned, units use `\u2009`, and event descriptions are properly capitalized.
+

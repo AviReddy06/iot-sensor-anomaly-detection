@@ -41,6 +41,7 @@ Thumbs.db
 .env.local
 *.key
 *.pem
+data/*.db
 
 # Heavy regenerable intermediate feature CSVs & downloaded external caches
 # Regenerate cleanly with:

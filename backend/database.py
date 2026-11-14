@@ -147,13 +147,13 @@ def insert_event(
 
 
 def get_recent_events(limit: int = 50) -> List[Dict[str, Any]]:
-    # Step 1: Retrieve distinct events sorted by most recent
+    # Step 1: Retrieve events sorted by most recent
     with get_db_connection() as conn:
         cursor = conn.cursor()
         cursor.execute(
             """
             SELECT id, start_time, end_time, duration_sec, peak_temp, peak_hum, delta_temp, what_changed, severity, sentence
-            FROM events GROUP BY start_time, end_time ORDER BY id DESC LIMIT ?
+            FROM events ORDER BY id DESC LIMIT ?
             """,
             (limit,),
         )

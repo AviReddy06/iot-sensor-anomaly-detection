@@ -1,88 +1,100 @@
 import React, { useState } from "react";
-import { AlertTriangle, Info, ChevronDown, ChevronUp } from "lucide-react";
 
-export default function UnusualLog({ events = [], onSelectEvent, highlightedEvent = null }) {
+export default function UnusualLog({ events = [], onSelectEvent }) {
   const [showDisclosure, setShowDisclosure] = useState(false);
 
   return (
-    <div className="w-full bg-[#111827] border border-[#1F2937] rounded-xl p-5 shadow-lg flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-[#1F2937]">
-        <div className="flex items-center gap-2.5">
-          <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-400">
-            <AlertTriangle className="w-4 h-4" />
-          </div>
-          <h3 className="text-base font-semibold text-slate-100">Anomaly Incident Ledger</h3>
-          <span className="px-2 py-0.5 text-xs font-mono font-medium rounded-full bg-slate-800 text-slate-300 border border-slate-700">
-            {events.length} {events.length === 1 ? "Event" : "Events"}
-          </span>
+    <div className="w-full flex flex-col mt-8">
+      {/* Table Title and Disclosure Toggle */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-[#CBD5D0]">
+        <div className="text-[15px] font-bold text-[#1C2A33] font-sans">
+          Log of unusual readings
         </div>
-
         <button
           type="button"
           onClick={() => setShowDisclosure((prev) => !prev)}
-          className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+          className="text-[13px] text-[#4F5F69] hover:text-[#1C2A33] underline transition-colors focus:outline-none focus:ring-2 focus:ring-[#1C2A33]"
         >
-          <Info className="w-3.5 h-3.5" />
-          <span>Severity criteria</span>
-          {showDisclosure ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          {showDisclosure ? "Hide how severity is decided" : "How severity is decided"}
         </button>
       </div>
 
+      {/* Severity Disclosure Note */}
       {showDisclosure && (
-        <div className="mt-3 p-3.5 bg-[#0B0F19] rounded-lg border border-slate-800 text-xs text-slate-300 leading-relaxed">
-          <strong className="text-slate-100">Detection Methodology:</strong> Incidents are flagged when sensor telemetry departs significantly from the Cauchy EWMA room baseline or triggers the Isolation Forest multi-feature boundary. 
-          <span className="text-amber-400 font-semibold ml-1">High</span> severity indicates rapid simultaneous thermal and moisture spikes lasting &gt; 15 seconds; 
-          <span className="text-yellow-400 font-semibold ml-1">Medium</span> indicates noticeable single-channel excursions; 
-          <span className="text-blue-400 font-semibold ml-1">Low</span> represents brief transitional fluctuations.
+        <div className="p-3 my-2 bg-[#EEF1EF] border border-[#CBD5D0] text-[13px] text-[#4F5F69] leading-relaxed font-sans">
+          Severity reflects how far readings drifted from the room's usual baseline and how long the change lasted. Low indicates a brief or mild deviation that resolved quickly; Medium indicates a noticeable departure lasting more than 15 seconds; High indicates a steep spike, persistent shift, or rapid dual-metric change.
         </div>
       )}
 
+      {/* Tabular Log */}
       {events && events.length > 0 ? (
-        <div className="w-full overflow-x-auto mt-4">
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm">
+        <div className="w-full overflow-x-auto mt-2">
+          <table className="w-full min-w-[640px] border-collapse text-left text-[14px] font-sans">
             <thead>
-              <tr className="border-b border-slate-800 text-xs font-medium text-slate-400">
-                <th className="py-2.5 px-3">Event</th>
-                <th className="py-2.5 px-3">Start Time</th>
-                <th className="py-2.5 px-3">Duration</th>
-                <th className="py-2.5 px-3">Excursion Details</th>
-                <th className="py-2.5 px-3 text-right">Peak Temp</th>
-                <th className="py-2.5 px-3 text-right">Peak RH</th>
-                <th className="py-2.5 px-3 text-center">Severity</th>
+              <tr className="border-b border-[#CBD5D0] text-[#4F5F69] text-[13px]">
+                <th className="py-2.5 pr-4 font-normal">Event</th>
+                <th className="py-2.5 pr-4 font-normal">Start</th>
+                <th className="py-2.5 pr-4 font-normal">Duration</th>
+                <th className="py-2.5 pr-4 font-normal">What changed</th>
+                <th className="py-2.5 pr-4 font-normal">Peak temperature</th>
+                <th className="py-2.5 pr-4 font-normal">Peak humidity</th>
+                <th className="py-2.5 font-normal">Severity</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
+            <tbody className="divide-y divide-[#CBD5D0]/60">
               {events.map((ev, idx) => {
                 const eventNum = ev.id || idx + 1;
-                const startTimeStr = ev.start_time && ev.start_time.length >= 19 ? ev.start_time.slice(11, 19) : ev.start_time || "—";
-                const durStr = ev.duration_sec ? `${Math.round(ev.duration_sec)}s` : "—";
-                const peakTempStr = ev.peak_temp !== undefined && ev.peak_temp !== null ? `${Number(ev.peak_temp).toFixed(1)} °C` : "—";
-                const peakHumStr = ev.peak_hum !== undefined && ev.peak_hum !== null ? `${Number(ev.peak_hum).toFixed(1)}%` : "—";
-                const whatChanged = ev.what_changed || ev.sentence || "Unusual reading detected";
-                const isSelected = highlightedEvent && (highlightedEvent.id === ev.id || highlightedEvent === ev);
+                const startTimeStr =
+                  ev.start_time && ev.start_time.length >= 19
+                    ? ev.start_time.slice(11, 19)
+                    : ev.start_time || "—";
+                const durStr = ev.duration_sec
+                  ? `${Math.round(ev.duration_sec)} s`
+                  : "—";
+                const peakTempStr =
+                  ev.peak_temp !== undefined && ev.peak_temp !== null
+                    ? `${Number(ev.peak_temp).toFixed(1)} °C`
+                    : "—";
+                const peakHumStr =
+                  ev.peak_hum !== undefined && ev.peak_hum !== null
+                    ? `${Number(ev.peak_hum).toFixed(1)}% RH`
+                    : "—";
+                const whatChanged =
+                  ev.what_changed ||
+                  (ev.sentence ? ev.sentence : "Unusual reading detected");
 
                 return (
                   <tr
                     key={`log-${eventNum}-${idx}`}
                     onClick={() => onSelectEvent?.(ev)}
-                    className={`cursor-pointer transition-colors ${
-                      isSelected ? "bg-amber-500/10 border-l-2 border-amber-500" : "hover:bg-slate-800/40"
-                    }`}
+                    className="hover:bg-[#CBD5D0]/30 cursor-pointer transition-colors"
                   >
-                    <td className="py-3 px-3 font-bold text-slate-200">#{eventNum}</td>
-                    <td className="py-3 px-3 text-slate-300">{startTimeStr}</td>
-                    <td className="py-3 px-3 text-slate-400">{durStr}</td>
-                    <td className="py-3 px-3 font-sans text-xs text-slate-200">{whatChanged}</td>
-                    <td className="py-3 px-3 text-right text-rose-400 font-semibold">{peakTempStr}</td>
-                    <td className="py-3 px-3 text-right text-sky-400 font-semibold">{peakHumStr}</td>
-                    <td className="py-3 px-3 text-center">
+                    <td className="py-2.5 pr-4 font-bold text-[#1C2A33]">
+                      {eventNum}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[#4F5F69] num-tabular">
+                      {startTimeStr}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[#4F5F69] num-tabular">
+                      {durStr}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[#1C2A33]">
+                      {whatChanged}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[#9B2C2C] font-semibold num-tabular">
+                      {peakTempStr}
+                    </td>
+                    <td className="py-2.5 pr-4 text-[#1D5C8C] font-semibold num-tabular">
+                      {peakHumStr}
+                    </td>
+                    <td className="py-2.5">
                       <span
-                        className={`inline-block px-2.5 py-0.5 rounded-full text-[11px] font-sans font-semibold tracking-wide ${
+                        className={`inline-block px-2 py-0.5 text-[12px] font-medium border ${
                           ev.severity === "High"
-                            ? "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                            ? "border-[#7A4B00] text-[#7A4B00] bg-[rgba(232,176,74,0.25)]"
                             : ev.severity === "Medium"
-                            ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
-                            : "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                            ? "border-[#7A4B00] text-[#7A4B00]"
+                            : "border-[#4F5F69] text-[#4F5F69]"
                         }`}
                       >
                         {ev.severity || "Unusual"}
@@ -95,9 +107,8 @@ export default function UnusualLog({ events = [], onSelectEvent, highlightedEven
           </table>
         </div>
       ) : (
-        <div className="mt-6 py-10 flex flex-col items-center justify-center text-center text-slate-500">
-          <p className="text-sm font-medium text-slate-400">Zero active anomalous excursions detected.</p>
-          <p className="text-xs text-slate-500 mt-1">Telemetry stream is operating within normal baseline boundaries.</p>
+        <div className="py-6 border-b border-[#CBD5D0] text-[14px] text-[#4F5F69] font-sans">
+          No unusual readings recorded.
         </div>
       )}
     </div>

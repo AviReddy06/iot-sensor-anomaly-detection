@@ -145,17 +145,23 @@ export default function ClientView() {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 text-[14px] text-[#4F5F69] font-sans">
-            <span
-              className={`w-2.5 h-2.5 rounded-full inline-block ${
-                statusLabel === "Live"
-                  ? "bg-[#28704A]"
-                  : statusLabel === "Simulated"
-                  ? "bg-[#7A4B00]"
-                  : "bg-[#4F5F69]"
-              }`}
-            />
+          <div className="flex items-center gap-2.5 px-3 py-1 border border-[#CBD5D0] text-[13px] text-[#4F5F69] font-sans">
+            <span className="relative flex h-2 w-2">
+              {statusLabel === "Live" && (
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#28704A] opacity-75" />
+              )}
+              <span
+                className={`relative inline-flex rounded-full h-2 w-2 ${
+                  statusLabel === "Live"
+                    ? "bg-[#28704A]"
+                    : statusLabel === "Simulated"
+                    ? "bg-[#7A4B00]"
+                    : "bg-[#4F5F69]"
+                }`}
+              />
+            </span>
             <span className="font-medium text-[#1C2A33]">{statusLabel}</span>
+            <span className="text-[#CBD5D0]">|</span>
             <span className="text-[#4F5F69] num-tabular">{formattedTime}</span>
           </div>
         </header>
@@ -165,9 +171,23 @@ export default function ClientView() {
           <h2 className="text-[28px] sm:text-[38px] font-normal leading-tight text-[#1C2A33] font-serif max-w-[840px]">
             {headline}
           </h2>
-          <p className="text-[16px] text-[#4F5F69] mt-2.5 font-sans leading-relaxed">
-            {currentLine}
-          </p>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-[15px] sm:text-[16px] text-[#4F5F69] mt-3 font-sans leading-relaxed">
+            <span>Current reading at <span className="text-[#1C2A33] font-medium num-tabular">{formattedTime}</span>:</span>
+            {currentTemp !== null && currentHum !== null ? (
+              <span className="inline-flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 border border-[#CBD5D0] bg-[#EEF1EF] text-[#9B2C2C] font-semibold num-tabular">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#9B2C2C]" />
+                  {Number(currentTemp).toFixed(1)} °C
+                </span>
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 border border-[#CBD5D0] bg-[#EEF1EF] text-[#1D5C8C] font-semibold num-tabular">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#1D5C8C]" />
+                  {Number(currentHum).toFixed(1)}% RH
+                </span>
+              </span>
+            ) : (
+              <span>{currentLine}</span>
+            )}
+          </div>
 
           {loadError && (
             <div className="mt-3 p-3 bg-[#EEF1EF] border border-[#CBD5D0] text-[13px] text-[#7A4B00] font-sans">

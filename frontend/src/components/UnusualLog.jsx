@@ -3,6 +3,21 @@ import React, { useState } from "react";
 export default function UnusualLog({ events = [], onSelectEvent }) {
   const [showDisclosure, setShowDisclosure] = useState(false);
 
+  // Deduplicate events by start_time and end_time so simulation replays never stack duplicate rows
+  const uniqueEvents = React.useMemo(() => {
+    if (!events || events.length === 0) return [];
+    const seen = new Set();
+    const result = [];
+    for (const ev of events) {
+      const key = `${ev.start_time || ''}_${ev.end_time || ''}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        result.push(ev);
+      }
+    }
+    return result;
+  }, [events]);
+
   return (
     <div className="w-full flex flex-col mt-8">
       {/* Table Title and Disclosure Toggle */}
@@ -27,7 +42,7 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
       )}
 
       {/* Tabular Log */}
-      {events && events.length > 0 ? (
+      {uniqueEvents && uniqueEvents.length > 0 ? (
         <div className="w-full overflow-x-auto mt-2">
           <table className="w-full min-w-[640px] border-collapse text-left text-[14px] font-sans">
             <thead>
@@ -42,8 +57,8 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-[#CBD5D0]/60">
-              {events.map((ev, idx) => {
-                const eventNum = ev.id || idx + 1;
+              {uniqueEvents.map((ev, idx) => {
+                const eventNum = idx + 1;
                 const startTimeStr =
                   ev.start_time && ev.start_time.length >= 19
                     ? ev.start_time.slice(11, 19)

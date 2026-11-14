@@ -121,9 +121,20 @@ def insert_event(
     severity: str,
     sentence: str,
 ) -> int:
-    # Step 1: Insert event into database
+    # Step 1: Prevent duplicate event insertion for identical time range
     with get_db_connection() as conn:
         cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT id FROM events 
+            WHERE start_time = ? AND end_time = ?
+            """,
+            (start_time, end_time),
+        )
+        existing = cursor.fetchone()
+        if existing:
+            return int(existing["id"])
+
         cursor.execute(
             """
             INSERT INTO events (

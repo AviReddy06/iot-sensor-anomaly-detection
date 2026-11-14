@@ -3,161 +3,179 @@ import { min, max } from "d3-array";
 import { scaleLinear } from "d3-scale";
 import { line, curveMonotoneX } from "d3-shape";
 
-export default function RoomMap({ readings = [], isUnusual = false }) {
-  // Step 1: Dimensions and margins
-  const width = 340;
-  const height = 360;
-  const margin = { top: 24, right: 20, bottom: 44, left: 50 };
-  const innerWidth = width - margin.left - margin.right;
-  const innerHeight = height - margin.top - margin.bottom;
+export default function RoomMap({ readings = [], events = [], isUnusual = false }) {
+  // Step 1: Geometry & strictly square 1:1 plot area
+  const plotSize = 270;
+  const margin = { top: 18, right: 18, bottom: 52, left: 52 };
+  const width = plotSize + margin.left + margin.right; // 340
+  const height = plotSize + margin.top + margin.bottom; // 340
 
-  // Step 2: Time horizons (6-hour dots, 30-min trail, latest dot)
-  const { sixHourReadings, thirtyMinReadings, latestReading, xDomain, yDomain } =
+  // Step 2: Time horizons & domains with 2 °C x 10 % RH noise guard
+  const { historyReadings, trajectoryReadings, latestReading, unusualHistoricalPoints, xDomain, yDomain } =
     useMemo(() => {
+      const MIN_T_SPAN = 2.0, MIN_H_SPAN = 10.0;
       if (!readings || readings.length === 0) {
-        return {
-          sixHourReadings: [], thirtyMinReadings: [], latestReading: null,
-          xDomain: [18, 34], yDomain: [30, 85],
-        };
+        return { historyReadings: [], trajectoryReadings: [], latestReading: null, unusualHistoricalPoints: [], xDomain: [20, 26], yDomain: [35, 65] };
       }
       const latest = readings[readings.length - 1];
       const latestTs = new Date(latest.timestamp).getTime();
-      const sixHourCutoff = latestTs - 6 * 60 * 60 * 1000;
-      const thirtyMinCutoff = latestTs - 30 * 60 * 1000;
+      const sixH = readings.filter((r) => new Date(r.timestamp).getTime() >= latestTs - 6 * 3600000);
+      const hist = sixH.length > 0 ? sixH : readings;
+      const thirtyM = readings.filter((r) => new Date(r.timestamp).getTime() >= latestTs - 1800000);
+      const traj = thirtyM.length > 0 ? thirtyM : readings.slice(-15);
 
-      const sixH = readings.filter((r) => new Date(r.timestamp).getTime() >= sixHourCutoff);
-      const thirtyM = readings.filter((r) => new Date(r.timestamp).getTime() >= thirtyMinCutoff);
+      // Locate historical unusual event points
+      const unusualPts = [];
+      if (events?.length > 0) {
+        const ranges = events.map((e) => ({
+          s: new Date(e.start_time).getTime(),
+          e: new Date(e.end_time || e.start_time).getTime() + (e.duration_sec ? e.duration_sec * 1000 : 30000),
+        }));
+        for (const r of hist) {
+          const t = new Date(r.timestamp).getTime();
+          if (ranges.some((rg) => t >= rg.s && t <= rg.e)) unusualPts.push(r);
+        }
+      }
 
-      const tMin = min(sixH.length ? sixH : readings, (d) => d.temperature) ?? 20;
-      const tMax = max(sixH.length ? sixH : readings, (d) => d.temperature) ?? 32;
-      const hMin = min(sixH.length ? sixH : readings, (d) => d.humidity) ?? 45;
-      const hMax = max(sixH.length ? sixH : readings, (d) => d.humidity) ?? 75;
+      // Compute raw bounds with padding (0.5 °C, 2.5 % RH)
+      let tMin = (min(hist, (d) => d.temperature) ?? latest.temperature) - 0.5;
+      let tMax = (max(hist, (d) => d.temperature) ?? latest.temperature) + 0.5;
+      let hMin = (min(hist, (d) => d.humidity) ?? latest.humidity) - 2.5;
+      let hMax = (max(hist, (d) => d.humidity) ?? latest.humidity) + 2.5;
 
-      return {
-        sixHourReadings: sixH.length ? sixH : readings,
-        thirtyMinReadings: thirtyM.length ? thirtyM : readings.slice(-15),
-        latestReading: latest,
-        xDomain: [Math.min(18, Math.floor(tMin - 1)), Math.max(34, Math.ceil(tMax + 1))],
-        yDomain: [Math.min(25, Math.floor(hMin - 2)), Math.max(80, Math.ceil(hMax + 2))],
-      };
-    }, [readings]);
+      // Enforce noise guard minimum span (>= 2 °C by 10 % RH)
+      if (tMax - tMin < MIN_T_SPAN) {
+        const mid = (tMin + tMax) / 2;
+        tMin = mid - MIN_T_SPAN / 2;
+        tMax = mid + MIN_T_SPAN / 2;
+      }
+      if (hMax - hMin < MIN_H_SPAN) {
+        const mid = (hMin + hMax) / 2;
+        hMin = mid - MIN_H_SPAN / 2;
+        hMax = mid + MIN_H_SPAN / 2;
+      }
 
-  // Step 3: D3 linear scales
-  const xScale = useMemo(() => scaleLinear().domain(xDomain).range([0, innerWidth]), [xDomain, innerWidth]);
-  const yScale = useMemo(() => scaleLinear().domain(yDomain).range([innerHeight, 0]), [yDomain, innerHeight]);
+      const xD = [Math.floor(tMin * 2) / 2, Math.ceil(tMax * 2) / 2];
+      const yD = [Math.floor(hMin / 5) * 5, Math.ceil(hMax / 5) * 5];
+      if (xD[1] - xD[0] < MIN_T_SPAN) xD[1] = xD[0] + MIN_T_SPAN;
+      if (yD[1] - yD[0] < MIN_H_SPAN) yD[1] = yD[0] + MIN_H_SPAN;
 
-  // Step 4: 30-minute state trajectory line
+      return { historyReadings: hist, trajectoryReadings: traj, latestReading: latest, unusualHistoricalPoints: unusualPts, xDomain: xD, yDomain: yD };
+    }, [readings, events]);
+
+  // Step 3: D3 scales & trajectory path
+  const xScale = useMemo(() => scaleLinear().domain(xDomain).range([0, plotSize]), [xDomain]);
+  const yScale = useMemo(() => scaleLinear().domain(yDomain).range([plotSize, 0]), [yDomain]);
   const trailPath = useMemo(() => {
-    if (thirtyMinReadings.length < 2) return "";
+    if (trajectoryReadings.length < 2) return "";
     const l = line().x((d) => xScale(d.temperature)).y((d) => yScale(d.humidity)).curve(curveMonotoneX);
-    return l(thirtyMinReadings) || "";
-  }, [thirtyMinReadings, xScale, yScale]);
+    return l(trajectoryReadings) || "";
+  }, [trajectoryReadings, xScale, yScale]);
 
   const xTicks = xScale.ticks(4);
   const yTicks = yScale.ticks(4);
+  const cX1 = xScale(20), cX2 = xScale(26), cY1 = yScale(60), cY2 = yScale(30);
+  const nowX = latestReading ? xScale(latestReading.temperature) : null;
+  const nowY = latestReading ? yScale(latestReading.humidity) : null;
 
-  // Comfort box boundaries (20-26 °C, 30-60% RH)
-  const cX1 = xScale(20);
-  const cX2 = xScale(26);
-  const cY1 = yScale(60);
-  const cY2 = yScale(30);
-
+  // Step 4: Render square 1:1 phase-space SVG canvas
   return (
     <div className="w-full flex flex-col">
-      {/* Header bar */}
       <div className="flex items-center justify-between pb-2 border-b border-[#CBD5D0]">
-        <div className="text-[13px] text-[#4F5F69] font-sans">
-          Temperature and humidity state space
-        </div>
+        <div className="text-[13px] text-[#4F5F69] font-sans">Room map</div>
       </div>
-
-      {/* SVG Canvas */}
       <div className="relative w-full overflow-hidden bg-[#EEF1EF] border border-[#CBD5D0] mt-2">
-        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-auto block select-none" aria-label="Room state space">
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          className="w-full aspect-square block select-none"
+          role="img"
+          aria-label={latestReading ? `Room map: ${latestReading.temperature.toFixed(1)} °C, ${latestReading.humidity.toFixed(1)} % RH` : "Room map"}
+        >
           <g transform={`translate(${margin.left}, ${margin.top})`}>
-            {/* Background Rect */}
-            <rect x="0" y="0" width={innerWidth} height={innerHeight} fill="#EEF1EF" />
+            {/* Background canvas */}
+            <rect x="0" y="0" width={plotSize} height={plotSize} fill="#EEF1EF" />
 
-            {/* Thermal Comfort Target Box (20-26 °C, 30-60% RH) */}
+            {/* Layer 1: Comfort target box (20-26 °C, 30-60 % RH) quiet background reference */}
             {cX2 > cX1 && cY2 > cY1 && (
-              <g>
+              <g aria-hidden="true">
                 <rect
-                  x={Math.max(0, cX1)}
-                  y={Math.max(0, cY1)}
-                  width={Math.min(innerWidth, cX2) - Math.max(0, cX1)}
-                  height={Math.min(innerHeight, cY2) - Math.max(0, cY1)}
-                  fill="rgba(40, 112, 74, 0.05)"
-                  stroke="#28704A"
-                  strokeWidth="1"
-                  strokeDasharray="3,3"
-                  opacity="0.45"
+                  x={Math.max(0, cX1)} y={Math.max(0, cY1)}
+                  width={Math.min(plotSize, cX2) - Math.max(0, cX1)}
+                  height={Math.min(plotSize, cY2) - Math.max(0, cY1)}
+                  fill="rgba(40, 112, 74, 0.04)" stroke="#28704A" strokeWidth="1" strokeDasharray="3,3" opacity="0.35"
                 />
+                {cX2 - cX1 > 50 && cY2 - cY1 > 22 && (
+                  <text x={Math.max(0, cX1) + 6} y={Math.max(0, cY1) + 16} fill="#28704A" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif" opacity="0.65">
+                    Comfort target
+                  </text>
+                )}
+              </g>
+            )}
+
+            {/* Grid rulings */}
+            {xTicks.map((t, i) => (
+              <line key={`rx-${i}`} x1={xScale(t)} x2={xScale(t)} y1={0} y2={plotSize} stroke="#CBD5D0" strokeWidth="1" strokeDasharray="2,2" />
+            ))}
+            {yTicks.map((t, i) => (
+              <line key={`ry-${i}`} x1={0} x2={plotSize} y1={yScale(t)} y2={yScale(t)} stroke="#CBD5D0" strokeWidth="1" strokeDasharray="2,2" />
+            ))}
+
+            {/* Layer 2: 6-hour history (faint dots: 2 px diameter, 25 % opacity) */}
+            {historyReadings.map((r, i) => (
+              <circle key={`hist-${i}`} cx={xScale(r.temperature)} cy={yScale(r.humidity)} r="1" fill="#1C2A33" opacity="0.25" />
+            ))}
+
+            {/* Layer 3: 30-minute trajectory (1.5 px continuous trail) */}
+            {trailPath && <path d={trailPath} fill="none" stroke="#4F5F69" strokeWidth="1.5" opacity="0.75" />}
+
+            {/* Layer 4: Unusual readings (straw-colored outer ring: #7A4B00 / #E8B04A) */}
+            {unusualHistoricalPoints.map((pt, i) => (
+              <circle key={`unusual-${i}`} cx={xScale(pt.temperature)} cy={yScale(pt.humidity)} r="6" fill="rgba(232, 176, 74, 0.25)" stroke="#7A4B00" strokeWidth="1" />
+            ))}
+            {isUnusual && nowX !== null && nowY !== null && (
+              <circle cx={nowX} cy={nowY} r="9" fill="rgba(232, 176, 74, 0.35)" stroke="#7A4B00" strokeWidth="1.5" />
+            )}
+
+            {/* Layer 5: Now reading (6 px filled dot with label) */}
+            {nowX !== null && nowY !== null && (
+              <g>
+                <circle cx={nowX} cy={nowY} r="3" fill={isUnusual ? "#7A4B00" : "#1C2A33"} stroke="#EEF1EF" strokeWidth="1" />
                 <text
-                  x={Math.max(0, cX1) + 4}
-                  y={Math.max(0, cY1) + 12}
-                  fill="#28704A"
-                  fontSize="10"
-                  fontFamily="'Atkinson Hyperlegible', sans-serif"
-                  opacity="0.8"
+                  x={nowX > plotSize - 55 ? nowX - 8 : nowX + 8}
+                  y={nowY < 20 ? nowY + 16 : nowY - 6}
+                  textAnchor={nowX > plotSize - 55 ? "end" : "start"}
+                  fill="#1C2A33" fontSize="13" fontWeight="700" fontFamily="'Atkinson Hyperlegible', sans-serif"
                 >
-                  Comfort zone
+                  Now
                 </text>
               </g>
             )}
 
-            {/* Vertical grid lines (Temperature) */}
-            {xTicks.map((tick, i) => (
-              <line key={`rx-${i}`} x1={xScale(tick)} x2={xScale(tick)} y1={0} y2={innerHeight} stroke="#CBD5D0" strokeWidth="1" strokeDasharray="2,2" />
-            ))}
-
-            {/* Horizontal grid lines (Humidity) */}
-            {yTicks.map((tick, i) => (
-              <line key={`ry-${i}`} x1={0} x2={innerWidth} y1={yScale(tick)} y2={yScale(tick)} stroke="#CBD5D0" strokeWidth="1" strokeDasharray="2,2" />
-            ))}
-
-            {/* 1. Last 6 hours: faint historical dots */}
-            {sixHourReadings.map((r, i) => (
-              <circle key={`hist-${i}`} cx={xScale(r.temperature)} cy={yScale(r.humidity)} r="1.5" fill="#CBD5D0" opacity="0.8" />
-            ))}
-
-            {/* 2. Last 30 minutes: connected trail */}
-            {trailPath && (
-              <path d={trailPath} fill="none" stroke="#4F5F69" strokeWidth="1.25" strokeDasharray="2,2" opacity="0.9" />
-            )}
-
-            {/* 3. Latest reading: filled dot */}
-            {latestReading && (
-              <g>
-                <circle cx={xScale(latestReading.temperature)} cy={yScale(latestReading.humidity)} r="5" fill={isUnusual ? "#7A4B00" : "#28704A"} stroke="#EEF1EF" strokeWidth="1.5" />
-                <circle cx={xScale(latestReading.temperature)} cy={yScale(latestReading.humidity)} r="8" fill="none" stroke={isUnusual ? "#7A4B00" : "#28704A"} strokeWidth="1" opacity="0.5" />
-              </g>
-            )}
-
-            {/* X-axis tick labels */}
-            {xTicks.map((tick, i) => (
-              <text key={`rxt-${i}`} x={xScale(tick)} y={innerHeight + 18} textAnchor="middle" fill="#4F5F69" fontSize="11" fontFamily="'Atkinson Hyperlegible', sans-serif">
-                {tick}°
+            {/* X-axis tick labels and explicit unit */}
+            {xTicks.map((t, i) => (
+              <text key={`rxt-${i}`} x={xScale(t)} y={plotSize + 18} textAnchor="middle" fill="#4F5F69" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif">
+                {t}°
               </text>
             ))}
-            <text x={innerWidth / 2} y={innerHeight + 34} textAnchor="middle" fill="#1C2A33" fontSize="12" fontFamily="'Atkinson Hyperlegible', sans-serif">
+            <text x={plotSize / 2} y={plotSize + 40} textAnchor="middle" fill="#1C2A33" fontSize="13" fontWeight="500" fontFamily="'Atkinson Hyperlegible', sans-serif">
               Temperature (°C)
             </text>
 
-            {/* Y-axis tick labels */}
-            {yTicks.map((tick, i) => (
-              <text key={`ryt-${i}`} x="-8" y={yScale(tick) + 4} textAnchor="end" fill="#4F5F69" fontSize="11" fontFamily="'Atkinson Hyperlegible', sans-serif">
-                {tick}%
+            {/* Y-axis tick labels and explicit unit */}
+            {yTicks.map((t, i) => (
+              <text key={`ryt-${i}`} x="-10" y={yScale(t) + 4} textAnchor="end" fill="#4F5F69" fontSize="13" fontFamily="'Atkinson Hyperlegible', sans-serif">
+                {t}%
               </text>
             ))}
-            <text transform="rotate(-90)" x={-innerHeight / 2} y="-36" textAnchor="middle" fill="#1C2A33" fontSize="12" fontFamily="'Atkinson Hyperlegible', sans-serif">
+            <text transform="rotate(-90)" x={-plotSize / 2} y="-38" textAnchor="middle" fill="#1C2A33" fontSize="13" fontWeight="500" fontFamily="'Atkinson Hyperlegible', sans-serif">
               Humidity (% RH)
             </text>
           </g>
         </svg>
 
-        {/* Legend / Caption */}
-        <div className="p-2.5 border-t border-[#CBD5D0] bg-[#EEF1EF] text-[12px] text-[#4F5F69] font-sans">
-          Where the room has been
+        {/* Step 5: Exact verbatim caption */}
+        <div className="p-3 border-t border-[#CBD5D0] bg-[#EEF1EF] text-[13px] text-[#4F5F69] font-sans">
+          Where the room has been: last 6 hours, last 30 minutes, now
         </div>
       </div>
     </div>

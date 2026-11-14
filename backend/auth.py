@@ -22,27 +22,38 @@ def _get_token_secret() -> bytes:
 
 TOKEN_EXPIRY_SECONDS: int = 3600 * 8  # 8 hours
 
-# Rate limiting storage: ip -> list of attempt timestamps
+# Rate limiting storage: ip -> list of failed attempt timestamps
 _LOGIN_ATTEMPTS: Dict[str, List[float]] = {}
 MAX_ATTEMPTS_PER_MINUTE: int = 5
 
 
 def check_rate_limit(client_ip: str) -> None:
-    # Step 1: Get current epoch time
+    # Step 1: Get current epoch time and prune attempts older than 60s
     now = time.time()
     attempts = _LOGIN_ATTEMPTS.get(client_ip, [])
-    # Step 2: Prune attempts older than 60 seconds
     valid_attempts = [t for t in attempts if now - t < 60.0]
-    # Step 3: Reject if limit reached
+    _LOGIN_ATTEMPTS[client_ip] = valid_attempts
+
+    # Step 2: Reject if rate limit reached
     if len(valid_attempts) >= MAX_ATTEMPTS_PER_MINUTE:
-        _LOGIN_ATTEMPTS[client_ip] = valid_attempts
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
             detail="Too many failed login attempts. Please wait 1 minute.",
         )
-    # Step 4: Record this attempt
+
+
+def record_failed_attempt(client_ip: str) -> None:
+    # Step 1: Record timestamped failed login attempt
+    now = time.time()
+    attempts = _LOGIN_ATTEMPTS.get(client_ip, [])
+    valid_attempts = [t for t in attempts if now - t < 60.0]
     valid_attempts.append(now)
     _LOGIN_ATTEMPTS[client_ip] = valid_attempts
+
+
+def clear_rate_limit(client_ip: str) -> None:
+    # Step 1: Clear failed attempts on successful authentication
+    _LOGIN_ATTEMPTS.pop(client_ip, None)
 
 
 def generate_signed_token() -> str:

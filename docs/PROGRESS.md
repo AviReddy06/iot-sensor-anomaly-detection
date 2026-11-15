@@ -157,3 +157,20 @@
 - **docs/MODEL_CARD.md**: Model card with limitations
 - **docs/DATASHEET.md**: Dataset card with provenance, UNKNOWN items flagged
 - **Commit**: a4939c1 "Evaluation protocol, freeze and run_all"
+
+## STEP D - Security Tests (COMPLETED)
+**Date:** 2026-11-15
+- **tests/test_security.py**: 27 tests covering all required security areas
+- **Token Security**: expiry rejection, tamper rejection (payload & signature), password never in logs/responses - ALL PASS
+- **Rate Limiting**: 6th failed login returns 429, successful login clears rate limit - ALL PASS
+- **Admin Routes Without Password**: admin metrics/settings return 503, admin WebSocket rejects with 1008 - ALL PASS
+- **Upload Security**: 5MB limit (413), bad headers rejected (422), binary rejected (422), path traversal plain/encoded/analysis rejected (400/404), server-generated filenames - ALL PASS
+- **CSV Formula Injection**: =, +, -, @ prefixed with apostrophe in exports - ALL PASS
+- **Security Headers**: CSP present on all responses, X-Content-Type-Options: nosniff, pages still render - ALL PASS
+- **Secret Scanning**: No AWS keys in tracked files - PASS
+- **Dependency Audits**: pip-audit and npm audit skipped (not installed in test env)
+- **Code Fixes**:
+  - auth.py: Fixed rate limiting to use >= (block 6th attempt), clear rate limit on success
+  - app.py: Added security headers middleware (CSP, X-Content-Type-Options, X-Frame-Options, etc.)
+  - admin_routes.py: Added upload endpoint with 5MB limit, CSV validation, server-generated filenames, path traversal protection; fixed CSV formula escaping in alerts export
+- **Commit**: 35dc168 "Security tests and known issues"

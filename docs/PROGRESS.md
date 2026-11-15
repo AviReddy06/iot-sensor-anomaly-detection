@@ -140,3 +140,20 @@
   - client_routes.py: checks is_degraded, returns "Detector unavailable" headline
   - ws_routes.py: broadcasts raw_frame status when not NORMAL/ANOMALY
 - **Commit:** 5182305 "Verified state and regression tests"
+
+## STEP C - Evaluation Protocol (COMPLETED)
+**Date:** 2026-11-15
+- **docs/evaluation_protocol.md**: Complete protocol with dataset table, rules, metrics, robustness tests
+- **results/freeze.json**: SHA256 of models/*, feature code, thresholds.json, commit hash (92a4ae6)
+- **Local tag**: eval-freeze created
+- **evaluate/run_all.py**: Verifies freeze hashes, regenerates all evaluations, outputs JSON/CSV/MD
+- **Results generated**: 39 model-dataset combinations across test, pilot (both label sets), eval_suite, UCI, IoTsec, v1 baseline, sensitivity levels
+- **Key findings documented**:
+  - Pilot is Development data (labels expanded 46→504 post-hoc)
+  - Synthetic eval_suite tuned (0.25th %ile = -0.21657)
+  - IoTsec: 470 FP, Precision=0.509 due to cross-domain shift
+  - Test/pilot overlap: 35 identical rows (22:02:14–22:03:23)
+  - v1 vs v2 comparison included
+- **docs/MODEL_CARD.md**: Model card with limitations
+- **docs/DATASHEET.md**: Dataset card with provenance, UNKNOWN items flagged
+- **Commit**: a4939c1 "Evaluation protocol, freeze and run_all"

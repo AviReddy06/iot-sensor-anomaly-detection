@@ -9,6 +9,11 @@ const getApiBase = () => {
     if (window.location.port === "5173" || window.location.port === "3000") {
       return "http://localhost:8000/api";
     }
+    // If running on Render static site, use the backend URL from env or detect
+    if (window.location.hostname.includes(".onrender.com")) {
+      // Frontend is on *.onrender.com, backend is on iot-anomaly-backend.onrender.com
+      return "https://iot-anomaly-backend.onrender.com/api";
+    }
     // When served directly by FastAPI (e.g. port 8000), use relative /api
     return "/api";
   }

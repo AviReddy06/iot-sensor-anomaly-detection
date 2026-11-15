@@ -12,7 +12,7 @@ services:
       - key: SERIAL_PORT
         value: auto
 
-  - type: web
+  - type: static
     name: iot-anomaly-frontend
     env: node
     buildCommand: "cd frontend && npm ci && npm run build"

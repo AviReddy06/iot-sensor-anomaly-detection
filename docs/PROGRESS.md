@@ -174,3 +174,11 @@
   - app.py: Added security headers middleware (CSP, X-Content-Type-Options, X-Frame-Options, etc.)
   - admin_routes.py: Added upload endpoint with 5MB limit, CSV validation, server-generated filenames, path traversal protection; fixed CSV formula escaping in alerts export
 - **Commit**: 35dc168 "Security tests and known issues"
+
+## STEP E - README and Report Inputs (COMPLETED)
+**Date:** 2026-11-15
+- **README.md**: Updated with complete evaluation results table (39 model-dataset combinations), sensitivity levels, v1 comparison, key audit findings, limitations, directory map, evaluation protocol summary, security posture
+- **docs/TEST_REPORT.md**: Test counts by layer (285 total: 75 unit, 6 integration, 6 regression, 29 security, 169 E2E), coverage per module (~86% statements), security results, what was NOT tested (load, soak, CI, hardware, a11y, pentest), known issues summary
+- **docs/REPORT_INPUTS.md**: Final Markdown tables with exact numbers (rows, events, provenance, role), sensitivity levels, dataset inventory, Testing and Validation section draft with limitations
+- **Figures (300 DPI)**: results/figures/event_recall_bar.png (event recall with 95% bootstrap CI), results/figures/fa_per_day_bar.png (false alarms per day log scale)
+- **Commit**: 5ba5bc6 "README, test report and report inputs"

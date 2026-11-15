@@ -21,7 +21,8 @@ export default function UnusualLog({ events = [], onSelectEvent }) {
     const seen = new Set();
     const result = [];
     for (const ev of events) {
-      const key = `${ev.start_time || ""}_${ev.end_time || ""}`;
+      const normStart = (ev.start_time || "").replace("T", " ").slice(0, 19);
+      const key = normStart || `ev-${ev.id}`;
       if (!seen.has(key)) {
         seen.add(key);
         result.push(ev);

@@ -141,6 +141,12 @@ tests/unit/test_endpoints_and_logging.py
 tests/unit/test_fake_serial.py
 tests/unit/test_serial_service_resilience.py
 
+# E2E test run reports (generated artifacts)
+e2e_tests/*.json
+e2e_tests/report*.json
+e2e_tests/*_report.json
+e2e_tests/test_run.json
+
 # iot-client-ui skill (local copy)
 iot-client-ui_SKILL.md
 

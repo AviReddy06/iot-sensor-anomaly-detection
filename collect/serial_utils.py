@@ -78,8 +78,13 @@ def open_serial_port(
     timeout: float = 1.0,
     reset_board: bool = False,
     flush_stale: bool = True,
-) -> serial.Serial:
-    """Open a serial port without toggling DTR/RTS and discard stale/partial RX frames."""
+) -> Any:
+    """Open a serial port without toggling DTR/RTS and discard stale/partial RX frames.
+    Routes 'fake:...' or 'FAKE...' to FakeSerial test double."""
+    if isinstance(port, str) and (port.upper().startswith("FAKE") or port.lower() in ("mock", "test")):
+        from backend.services.fake_serial import create_fake_serial
+        return create_fake_serial(port=port, baudrate=baudrate, timeout=timeout)
+
     ser = serial.Serial()
     ser.port = port
     ser.baudrate = int(baudrate)

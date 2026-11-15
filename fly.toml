@@ -1,0 +1,28 @@
+app = "iot-anomaly"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DB_PATH = "/data/iot_anomaly.db"
+  SERIAL_PORT = "auto"
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = true
+  auto_start_machines = true
+  min_machines_running = 0
+
+[mounts]
+  source = "iot_data"
+  destination = "/data"
+
+[[services]]
+  protocol = "tcp"
+  internal_port = 8000
+  ports = [
+    {port = 80, handlers = ["http"]},
+    {port = 443, handlers = ["tls", "http"]}
+  ]

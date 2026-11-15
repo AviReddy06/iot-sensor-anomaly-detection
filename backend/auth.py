@@ -35,6 +35,8 @@ def check_rate_limit(client_ip: str) -> None:
     _LOGIN_ATTEMPTS[client_ip] = valid_attempts
 
     # Step 2: Reject if rate limit reached
+    # Block when there are MAX_ATTEMPTS_PER_MINUTE or more recent failures
+    # This allows MAX_ATTEMPTS_PER_MINUTE attempts; the (MAX+1)th is blocked
     if len(valid_attempts) >= MAX_ATTEMPTS_PER_MINUTE:
         raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -90,6 +92,8 @@ def verify_signed_token(token: str) -> bool:
 def require_admin_token(
     request: Request,
     authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None, alias="X-API-Key"),
+    x_token: Optional[str] = Header(None, alias="X-Token"),
 ) -> str:
     # Step 1: If ADMIN_PASSWORD is unset, admin routes return 503
     if not config.ADMIN_PASSWORD:
@@ -97,16 +101,38 @@ def require_admin_token(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Admin access is unavailable: ADMIN_PASSWORD environment variable is not set.",
         )
-    # Step 2: Extract token from header or query param
-    token = None
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization[7:].strip()
-    elif "token" in request.query_params:
-        token = request.query_params["token"]
 
-    if not token or not verify_signed_token(token):
+    # Step 2: Extract credential candidate from multi-channel headers and params
+    candidate = None
+    if authorization:
+        if authorization.startswith("Bearer "):
+            candidate = authorization[7:].strip()
+        else:
+            candidate = authorization.strip()
+    elif x_api_key:
+        candidate = x_api_key.strip()
+    elif x_token:
+        candidate = x_token.strip()
+    elif "api-key" in request.headers:
+        candidate = request.headers["api-key"].strip()
+    elif "token" in request.query_params:
+        candidate = request.query_params["token"].strip()
+    elif "api_key" in request.query_params:
+        candidate = request.query_params["api_key"].strip()
+
+    if not candidate:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing authentication token.",
         )
-    return token
+
+    # Step 3: Verify signed token OR compare directly with ADMIN_PASSWORD (API key auth)
+    if verify_signed_token(candidate):
+        return candidate
+    if config.ADMIN_PASSWORD and hmac.compare_digest(candidate, config.ADMIN_PASSWORD):
+        return candidate
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid or missing authentication token.",
+    )

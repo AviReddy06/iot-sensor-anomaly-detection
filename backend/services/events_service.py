@@ -20,6 +20,17 @@ class EventsService:
         self.active_event: Optional[Dict[str, Any]] = None
         self.last_flag_time: Optional[datetime] = None
 
+    def flush(self) -> Optional[Dict[str, Any]]:
+        """Flush and persist any active event to the database."""
+        if self.active_event:
+            return self._finalize_event()
+        return None
+
+    def reset(self) -> None:
+        """Reset internal active event tracking state."""
+        self.active_event = None
+        self.last_flag_time = None
+
     def process_sample(
         self,
         timestamp_str: str,
@@ -29,7 +40,16 @@ class EventsService:
         peak_z: float,
     ) -> Optional[Dict[str, Any]]:
         # Step 1: Parse current timestamp
-        current_dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+        clean_ts = timestamp_str.replace("Z", "+00:00")
+        try:
+            if "T" in clean_ts:
+                current_dt = datetime.fromisoformat(clean_ts)
+            else:
+                current_dt = datetime.strptime(clean_ts[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+        except Exception:
+            current_dt = datetime.now(timezone.utc)
+        if current_dt.tzinfo is None:
+            current_dt = current_dt.replace(tzinfo=timezone.utc)
         
         # Step 2: Handle ongoing active event closure if no flag for > 10 seconds
         if self.active_event and (not is_flagged or (self.last_flag_time and (current_dt - self.last_flag_time).total_seconds() > 10.0)):

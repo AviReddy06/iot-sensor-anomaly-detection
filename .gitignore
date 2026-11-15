@@ -70,3 +70,85 @@ htmlcov/
 .coverage
 .pytest_cache/
 .ipynb_checkpoints/
+
+# Tool & agent scratch
+.agents/
+.agent/
+skills-lock.json
+auditor_run_report.json
+.env
+*.db
+data/uploads/
+logs/
+node_modules/
+.agents/teamwork/
+
+# Database Wal/Shm files
+data/*.db-shm
+data/*.db-wal
+data/raw/live_session_log.csv
+
+# Backend generated/scratch
+backend/logging_config.py
+backend/schemas/health_schemas.py
+backend/services/fake_serial.py
+backend/shutdown.py
+
+# Frontend build/config scratch
+frontend/.oxlintrc.json
+frontend/postcss.config.js
+frontend/public/
+frontend/src/assets/
+
+# Documentation generated/scratch
+docs/API.md
+docs/HANDOFF.md
+docs/IoT_Anomaly_Detection_IEEE_Report_Final.docx
+docs/IoT_Anomaly_Detection_IEEE_Report_v2.docx
+docs/KNOWN_ISSUES.md
+docs/REPORT_REVIEW_NOTES.md
+docs/figures/
+docs/figures_final/
+docs/ieee_report.md
+docs/openapi.json
+docs/screenshots/admin_demo_*.png
+docs/screenshots/admin_live_view.png
+docs/screenshots/client_demo_*.png
+docs/screenshots/client_live_view.png
+docs/screenshots/client_offline_*.png
+docs/screenshots/current_*.png
+docs/screenshots/new_design/
+docs/screenshots/restored_dashboard_verification.png
+
+# Archive
+archive/
+
+# Scripts scratch (test/verification scripts)
+scripts/capture_*.py
+scripts/export_openapi.py
+scripts/inspect_*.py
+scripts/test_*.py
+scripts/verify_*.py
+
+# Test evidence and scratch
+tests/evidence_continuous_6h_false_gaps.png
+tests/integration/test_wal_concurrency_60s.py
+tests/test_adversarial_dom_guardrails.py
+tests/test_challenger_*.py
+tests/test_stripchart_empirical.py
+tests/unit/test_database_concurrency.py
+tests/unit/test_endpoints_and_logging.py
+tests/unit/test_fake_serial.py
+tests/unit/test_serial_service_resilience.py
+
+# E2E test run reports (generated artifacts)
+e2e_tests/*.json
+e2e_tests/report*.json
+e2e_tests/*_report.json
+e2e_tests/test_run.json
+
+# iot-client-ui skill (local copy)
+iot-client-ui_SKILL.md
+
+# Project rules (local copy)
+project-rules.md

@@ -1,3 +1,4 @@
+version: "1"
 services:
   - type: web
     name: iot-anomaly-backend
@@ -14,7 +15,6 @@ services:
 
   - type: static
     name: iot-anomaly-frontend
-    env: node
     buildCommand: "cd frontend && npm ci && npm run build"
     staticPublishPath: ./frontend/dist
     routes:

@@ -222,7 +222,7 @@ class SerialService:
         self,
         dataset_name: str = "eval_suite",
         interval_sec: float = 1.0,
-        loop: bool = False,
+        loop: bool = True,  # Default to loop=True for demo purposes
     ) -> Dict[str, Any]:
         """Start streaming simulated data points from a recorded dataset."""
         if self.is_streaming:
@@ -438,6 +438,11 @@ class SerialService:
         total_rows = len(df)
 
         try:
+            # Wait for first interval before producing first reading (more realistic for periodic sensors)
+            if interval_sec > 0:
+                if self.stop_event.wait(interval_sec):
+                    return
+            
             while not self.stop_event.is_set() and row_idx < total_rows:
                 row = df.iloc[row_idx]
                 ts = str(row["timestamp"])

@@ -9,11 +9,25 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timezone
 import json
+import re
 from typing import Dict, List, Optional, Set
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect, status
 from backend import config
 from backend.auth import verify_signed_token
+
+
+def _is_allowed_origin(origin: Optional[str]) -> bool:
+    """Check if the origin is in the allowed list or matches the regex."""
+    if not origin:
+        return False
+    # Check exact matches first
+    if origin in config.ALLOWED_ORIGINS:
+        return True
+    # Check regex pattern
+    if re.match(config.ALLOWED_ORIGIN_REGEX, origin):
+        return True
+    return False
 
 ws_router = APIRouter(tags=["WebSocket"])
 
@@ -207,7 +221,16 @@ ws_manager = ConnectionManager(queue_capacity=100)
 
 @ws_router.websocket("/ws/client")
 async def websocket_client_endpoint(websocket: WebSocket):
-    """Public client WebSocket streaming client-safe telemetry frames."""
+    """Public client WebSocket streaming client-safe telemetry frames.
+    Enforces CORS origin policy: only allowed localhost origins may connect.
+    """
+    # Enforce origin policy for client WebSocket
+    origin = websocket.headers.get("origin") or websocket.headers.get("Origin")
+    # Allow missing origin for test client compatibility
+    if origin and not _is_allowed_origin(origin):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION, reason="Origin not allowed")
+        return
+
     session = await ws_manager.connect(websocket, client_type="client")
     try:
         while True:

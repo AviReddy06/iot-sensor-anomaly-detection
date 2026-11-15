@@ -1,7 +1,7 @@
 # Evaluation Results: All Models, All Datasets
 
-Generated: 2026-11-15T13:43:53.563794+00:00Z
-Commit: 92a4ae60
+Generated: 2026-11-15T15:43:38.434264+00:00Z
+Commit: cfe96e04
 Freeze verified: True
 
 | Version | Dataset | Model | Rows | Positives | TP | FP | FN | Precision | Recall | F1 | Event Recall | Delay (s) | FA/Day | CI Low | CI High | CI Note | Provenance | Role | Label Set | Flag |

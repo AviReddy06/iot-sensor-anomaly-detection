@@ -179,7 +179,11 @@ def list_datasets() -> List[Dict[str, Any]]:
 
 
 @router.get("/datasets/{name}")
-def get_dataset_analysis(name: str) -> Dict[str, Any]:
+def get_dataset_analysis(name: str, request: Request) -> Dict[str, Any]:
+    # Check for path traversal attempts in raw path
+    raw_path = request.url.path
+    if ".." in raw_path or raw_path.count("/") > 3:
+        raise HTTPException(status_code=400, detail="Invalid dataset name")
     """Load and process a dataset, returning all time-series points, anomaly flags, and metrics."""
     file_map = {
         "eval_suite": PROJECT_ROOT / "data" / "processed" / "eval_test_suite.csv",
@@ -264,15 +268,13 @@ async def upload_custom_dataset(file: UploadFile = File(...)) -> Dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {exc}")
 
-    # Validate schema
-    if not ({"timestamp", "temperature", "humidity"}.issubset(df.columns) or len(df.columns) == 3):
+    # Validate schema - must have required columns
+    required_cols = {"timestamp", "temperature", "humidity"}
+    if not required_cols.issubset(df.columns):
         raise HTTPException(
             status_code=400,
             detail="CSV must contain 'timestamp', 'temperature', and 'humidity' columns."
         )
-
-    if len(df.columns) == 3 and not {"timestamp", "temperature", "humidity"}.issubset(df.columns):
-        df.columns = ["timestamp", "temperature", "humidity"]
 
     processed_df, summary = inference_service.process_dataframe(df)
 

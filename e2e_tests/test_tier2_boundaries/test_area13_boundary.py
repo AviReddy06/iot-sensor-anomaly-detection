@@ -67,7 +67,8 @@ def test_a13_t2_05_git_history_deep_secret_scan():
     res = subprocess.run(
         ["git", "log", "-p", "-n", "25"],
         capture_output=True,
-        text=True,
+        encoding='utf-8',
+        errors='replace',
         stdin=subprocess.DEVNULL,
         cwd=str(PROJECT_ROOT),
     )

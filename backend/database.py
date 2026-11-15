@@ -218,7 +218,7 @@ def get_recent_readings(limit: int = 100) -> List[Dict[str, Any]]:
             "humidity": r["humidity"],
             "is_simulated": bool(r["is_simulated"]),
         }
-        for r in reversed(rows)
+        for r in rows
     ]
 
 

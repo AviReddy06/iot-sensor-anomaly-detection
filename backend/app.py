@@ -36,6 +36,31 @@ from backend.services.serial_service import serial_service
 from backend.shutdown import perform_graceful_shutdown
 
 
+MAX_UPLOAD_SIZE = 5 * 1024 * 1024  # 5 MB
+
+async def limit_upload_size(request, call_next):
+    """Limit request body size to MAX_UPLOAD_SIZE."""
+    if request.method in ("POST", "PUT", "PATCH"):
+        content_length = request.headers.get("content-length")
+        if content_length and int(content_length) > MAX_UPLOAD_SIZE:
+            return JSONResponse(
+                status_code=413,
+                content={"detail": f"File too large. Maximum size is {MAX_UPLOAD_SIZE} bytes."},
+            )
+    response = await call_next(request)
+    return response
+
+
+async def block_suspicious_paths(request, call_next):
+    """Block paths that look like path traversal attempts or backend file access."""
+    path = request.url.path
+    # Block paths that look like they're trying to access backend files
+    if path.startswith("/backend/") or path.startswith("/data/") or path.startswith("/models/") or path.startswith("/scripts/") or path.startswith("/tests/") or path.startswith("/frontend/") or path.startswith("/e2e_tests/") or path.startswith("/eda/") or path.startswith("/preprocess/") or path.startswith("/features/") or path.startswith("/collect/") or path.startswith("/alerts/") or path.startswith("/dashboard/") or path.startswith("/train/") or path.startswith("/archive/"):
+        return JSONResponse(status_code=404, content={"detail": "Not found"})
+    response = await call_next(request)
+    return response
+
+
 async def add_security_headers(request, call_next):
     """Add security headers to all responses."""
     response = await call_next(request)
@@ -81,6 +106,12 @@ app = FastAPI(
 
 # Register structured logging middleware
 app.add_middleware(StructuredLoggingMiddleware)
+
+# Limit upload size (must be early to catch large uploads before processing)
+app.middleware("http")(limit_upload_size)
+
+# Block suspicious paths (must be before SPA fallback)
+app.middleware("http")(block_suspicious_paths)
 
 # Add security headers middleware
 app.middleware("http")(add_security_headers)

@@ -517,12 +517,16 @@ def main():
     print("\nFreeze verification PASSED")
     print(f"Commit: {current_hashes['commit_hash'][:8]}")
     
-    # Save current hashes for reference
+    # Save current hashes for reference - include top-level model hashes for test compatibility
     freeze_data = {
         "files": {k: v for k, v in current_hashes.items() if k != "commit_hash"},
         "commit_hash": current_hashes["commit_hash"],
         "verified_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    # Add top-level model hashes for test compatibility
+    freeze_data["models/iforest.joblib"] = current_hashes.get("models/iforest.joblib", "")
+    freeze_data["models/scaler.joblib"] = current_hashes.get("models/scaler.joblib", "")
+    freeze_data["models/thresholds.json"] = current_hashes.get("models/thresholds.json", "")
     (PROJECT_ROOT / "results" / "freeze.json").write_text(json.dumps(freeze_data, indent=2))
     
     # 2. Run all evaluations
@@ -612,6 +616,14 @@ def main():
             "flag": "Tuned on synthetic suite, Development" if level == "Medium (0.25th %ile)" else "",
         })
     
+    # Robustness evaluations (synthetic perturbations)
+    print("\n[Robustness] Running robustness perturbations...")
+    robustness_results = run_robustness_evaluations(iso, scaler, thresholds, feature_cols)
+    
+    # Random detector control
+    print("\n[Random Control] Computing random detector baseline...")
+    random_control_results = run_random_detector_control()
+    
     # 4. Output results
     print("\n" + "=" * 70)
     print("WRITING OUTPUTS")
@@ -620,10 +632,16 @@ def main():
     results_dir = PROJECT_ROOT / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     
-    # JSON
+    # JSON - include robustness and random_control at top level for test compatibility
+    output_data = {
+        "evaluations": all_results,
+        "robustness": robustness_results,
+        "random_control": random_control_results,
+    }
+    
     json_path = results_dir / "evaluation_results.json"
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(all_results, f, indent=2)
+        json.dump(output_data, f, indent=2)
     print(f"JSON: {json_path}")
     
     # CSV
@@ -678,6 +696,175 @@ def main():
     print("\n" + "=" * 70)
     print("EVALUATION COMPLETE")
     print("=" * 70)
+
+# ---------------------------------------------------------------------------
+# Robustness Evaluations
+# ---------------------------------------------------------------------------
+
+def run_robustness_evaluations(iso, scaler, thresholds, feature_cols):
+    """Run robustness evaluations with synthetic perturbations."""
+    print("  Loading normal baseline data...")
+    normal_path = PROJECT_ROOT / "data" / "processed" / "normal_data_clean.csv"
+    if not normal_path.exists():
+        normal_path = PROJECT_ROOT / "data" / "raw" / "normal_data.csv"
+    normal_df = pd.read_csv(normal_path)
+    normal_df = build_features(normal_df)
+    
+    # Use first 1000 rows for robustness testing
+    test_df = normal_df.head(1000).copy()
+    test_df["label"] = 0  # All normal
+    
+    X_scaled = scaler.transform(test_df[feature_cols])
+    if_scores = iso.decision_function(X_scaled)
+    if_raw = if_scores < thresholds["iforest_threshold"]
+    if_flag = apply_gated_persistence(if_raw, test_df["session_id"].to_numpy(), features_df=test_df)
+    
+    ewma_z = compute_adaptive_ewma_z(test_df, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"])
+    ewma_flag = ewma_z > thresholds["ewma_zscore_threshold"]
+    
+    z_t = np.abs((test_df["temperature"] - thresholds["normal_temp_mean"]) / thresholds["normal_temp_std"])
+    z_h = np.abs((test_df["humidity"] - thresholds["normal_hum_mean"]) / thresholds["normal_hum_std"])
+    z_val = np.maximum(z_t.to_numpy(dtype=float), z_h.to_numpy(dtype=float))
+    z_flag = z_val > thresholds["zscore_threshold"]
+    
+    hybrid_flag = if_flag | ewma_flag
+    
+    # Base false alarm rate (no perturbation)
+    base_fa = int(hybrid_flag.sum())
+    base_fa_per_hour = base_fa / (len(test_df) * 2 / 3600)  # 2s intervals
+    
+    np.random.seed(42)
+    perturbations = [
+        ("noise_0.1", lambda df: df.assign(temperature=df["temperature"] + np.random.normal(0, 0.1, len(df)), humidity=df["humidity"] + np.random.normal(0, 0.1, len(df)))),
+        ("noise_0.3", lambda df: df.assign(temperature=df["temperature"] + np.random.normal(0, 0.3, len(df)), humidity=df["humidity"] + np.random.normal(0, 0.3, len(df)))),
+        ("drop_5pct", lambda df: df.sample(frac=0.95, random_state=42).sort_index()),
+        ("gap_60s", lambda df: df.iloc[len(df)//4:].reset_index(drop=True)),
+        ("step_3C", lambda df: add_step(df, 3.0)),
+    ]
+    
+    robustness_results = []
+    for name, perturb_fn in perturbations:
+        print(f"  Testing {name}...")
+        perturbed_df = perturb_fn(test_df.copy())
+        perturbed_df = build_features(perturbed_df)
+        
+        if len(perturbed_df) == 0:
+            continue
+            
+        X_pert = scaler.transform(perturbed_df[feature_cols])
+        if_scores_p = iso.decision_function(X_pert)
+        if_raw_p = if_scores_p < thresholds["iforest_threshold"]
+        if_flag_p = apply_gated_persistence(if_raw_p, perturbed_df["session_id"].to_numpy(), features_df=perturbed_df)
+        
+        ewma_z_p = compute_adaptive_ewma_z(perturbed_df, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"])
+        ewma_flag_p = ewma_z_p > thresholds["ewma_zscore_threshold"]
+        
+        z_t_p = np.abs((perturbed_df["temperature"] - thresholds["normal_temp_mean"]) / thresholds["normal_temp_std"])
+        z_h_p = np.abs((perturbed_df["humidity"] - thresholds["normal_hum_mean"]) / thresholds["normal_hum_std"])
+        z_val_p = np.maximum(z_t_p.to_numpy(dtype=float), z_h_p.to_numpy(dtype=float))
+        z_flag_p = z_val_p > thresholds["zscore_threshold"]
+        
+        hybrid_flag_p = if_flag_p | ewma_flag_p
+        
+        fa = int(hybrid_flag_p.sum())
+        fa_per_hour = fa / (len(perturbed_df) * 2 / 3600) if len(perturbed_df) > 0 else 0
+        
+        robustness_results.append({
+            "perturbation": name,
+            "rows": len(perturbed_df),
+            "false_alarms": fa,
+            "false_alarms_per_hour": round(fa_per_hour, 2),
+            "base_fa_per_hour": round(base_fa_per_hour, 2),
+            "fa_increase_factor": round(fa_per_hour / base_fa_per_hour, 2) if base_fa_per_hour > 0 else float('inf'),
+        })
+    
+    return robustness_results
+
+
+def create_stuck_sensor(df, duration_rows):
+    """Create stuck sensor (constant value for duration)."""
+    df = df.copy()
+    if len(df) > duration_rows:
+        stuck_temp = df["temperature"].iloc[0]
+        stuck_hum = df["humidity"].iloc[0]
+        df.iloc[:duration_rows, df.columns.get_loc("temperature")] = stuck_temp
+        df.iloc[:duration_rows, df.columns.get_loc("humidity")] = stuck_hum
+    return df
+
+
+def add_drift(df, drift_per_row):
+    """Add linear drift to temperature."""
+    df = df.copy()
+    drift = np.arange(len(df)) * drift_per_row
+    df["temperature"] = df["temperature"] + drift
+    return df
+
+
+def add_step(df, step_size):
+    """Add step change halfway through."""
+    df = df.copy()
+    mid = len(df) // 2
+    df.iloc[mid:, df.columns.get_loc("temperature")] = df.iloc[mid:, df.columns.get_loc("temperature")] + step_size
+    return df
+
+
+def add_humidity_spike(df):
+    """Add humidity spike."""
+    df = df.copy()
+    mid = len(df) // 2
+    end = min(mid + 10, len(df))
+    df.iloc[mid:end, df.columns.get_loc("humidity")] = df.iloc[mid:end, df.columns.get_loc("humidity")] + 20
+    return df
+
+
+def quantize(df, resolution):
+    """Quantize values to given resolution."""
+    df = df.copy()
+    df["temperature"] = np.round(df["temperature"] / resolution) * resolution
+    df["humidity"] = np.round(df["humidity"] / resolution) * resolution
+    return df
+
+
+def run_random_detector_control():
+    """Run random detector control baseline."""
+    # Load test set for baseline
+    test_path = PROJECT_ROOT / "data" / "processed" / "test_data_with_labels.csv"
+    test_df = pd.read_csv(test_path)
+    y_true = test_df["label"].to_numpy().astype(int)
+    
+    # Random detector flagging same fraction as hybrid on test set
+    from features.feature_engine import MODEL_FEATURE_COLS
+    import joblib
+    
+    iso, scaler, thresholds = load_models()
+    feature_cols = thresholds.get("feature_cols", MODEL_FEATURE_COLS)
+    
+    test_feats = build_features(test_df)
+    X_scaled = scaler.transform(test_feats[feature_cols])
+    if_scores = iso.decision_function(X_scaled)
+    if_raw = if_scores < thresholds["iforest_threshold"]
+    if_flag = apply_gated_persistence(if_raw, test_feats["session_id"].to_numpy(), features_df=test_feats)
+    ewma_z = compute_adaptive_ewma_z(test_feats, thresholds["ewma_temp_std"], thresholds["ewma_hum_std"])
+    ewma_flag = ewma_z > thresholds["ewma_zscore_threshold"]
+    hybrid_flag = if_flag | ewma_flag
+    
+    frac_flagged = hybrid_flag.mean()
+    
+    # Random detector
+    rng = np.random.default_rng(42)
+    random_pred = (rng.random(len(y_true)) < frac_flagged).astype(int)
+    
+    from sklearn.metrics import precision_recall_fscore_support
+    p, r, f1, _ = precision_recall_fscore_support(y_true, random_pred, average="binary", zero_division=0)
+    
+    return {
+        "frac_flagged": round(float(frac_flagged), 4),
+        "random_precision": round(float(p), 4),
+        "random_recall": round(float(r), 4),
+        "random_f1": round(float(f1), 4),
+        "note": "Random detector flagging same fraction as hybrid on test set"
+    }
+
 
 if __name__ == "__main__":
     main()

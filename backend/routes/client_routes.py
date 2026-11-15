@@ -127,6 +127,25 @@ def get_client_status():
     serial_state = ser_st.get("serial_state", "disconnected")
     age_sec = ser_st.get("last_reading_age_seconds")
 
+    # Fallback: if serial service hasn't seen a reading recently, check newest DB reading
+    if age_sec is None or age_sec > 60.0:
+        recent = get_recent_readings(limit=1)
+        if recent:
+            last_ts = recent[0]["timestamp"]
+            try:
+                clean_ts = last_ts.replace("Z", "+00:00")
+                if "T" in clean_ts:
+                    dt = datetime.fromisoformat(clean_ts)
+                else:
+                    dt = datetime.strptime(clean_ts[:19], "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                db_age = max(0.0, round((datetime.now(timezone.utc) - dt).total_seconds(), 2))
+                if age_sec is None or db_age > age_sec:
+                    age_sec = db_age
+            except Exception:
+                pass
+
     # Step 2: Determine system status: Live, Simulated, or Offline (transitions to Offline after 60s silence)
     if not is_streaming or serial_state == "offline" or (age_sec is not None and age_sec >= 60.0):
         status_label = "Offline"

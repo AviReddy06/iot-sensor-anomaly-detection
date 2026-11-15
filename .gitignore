@@ -70,3 +70,15 @@ htmlcov/
 .coverage
 .pytest_cache/
 .ipynb_checkpoints/
+
+# Tool & agent scratch
+.agents/
+.agent/
+skills-lock.json
+auditor_run_report.json
+.env
+*.db
+data/uploads/
+logs/
+node_modules/
+.agents/teamwork/

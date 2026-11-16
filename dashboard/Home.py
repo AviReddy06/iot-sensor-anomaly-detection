@@ -44,8 +44,8 @@ with st.sidebar:
 
 # ---- Role-based routing ----
 if st.session_state.role == "admin":
-    # Admin view: redirect to admin app
-    st.switch_page("dashboard/admin_app.py")
+    # Admin view: redirect to admin page in pages/
+    st.switch_page("pages/4_Admin.py")
 else:
     # Client view: show Home dashboard
     st.title("AI-Based IoT Sensor Anomaly Detection")

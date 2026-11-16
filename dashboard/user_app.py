@@ -24,6 +24,15 @@ import pandas as pd
 import serial
 import streamlit as st
 
+# Find project root by looking for pyproject.toml marker
+def _find_project_root():
+    path = Path(__file__).resolve()
+    for parent in [path] + list(path.parents):
+        if (parent / "pyproject.toml").exists():
+            return parent
+    # Fallback to relative path
+    return Path(__file__).resolve().parent.parent
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))

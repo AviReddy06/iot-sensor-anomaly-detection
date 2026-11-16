@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "iot-anomaly-detection"
+version = "0.1.0"
+description = "AI-Based IoT Sensor Anomaly Detection Dashboard"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["alerts*", "collect*", "config*", "features*", "dashboard*"]
+
+[tool.setuptools.package-dir]
+"" = "."

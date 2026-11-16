@@ -12,3 +12,6 @@ matplotlib>=3.7
 seaborn>=0.13
 plotly>=5.17
 pytest>=8.0
+
+# Local package (editable install for local modules)
+-e .

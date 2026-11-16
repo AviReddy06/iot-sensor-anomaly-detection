@@ -331,6 +331,7 @@ class SerialService:
         insert_reading(timestamp=timestamp, temperature=temperature, humidity=humidity, is_simulated=False)
 
         # Run inference on the buffered data
+        scored_frame = None
         scored_frame = inference_service.process_streaming_buffer(list(self.data_buffer))
         if scored_frame:
             # Mark as remote source
@@ -361,6 +362,17 @@ class SerialService:
             "temperature": temperature,
             "humidity": humidity,
             "source": "remote",
+            "anomaly_state": (
+                "anomaly" if scored_frame and scored_frame["is_anomaly"]
+                else "normal" if scored_frame
+                else "unknown"
+            ),
+            "is_anomaly": (
+                bool(scored_frame["is_anomaly"]) if scored_frame else None
+            ),
+            "hybrid_score": (
+                float(scored_frame["hybrid_score"]) if scored_frame else None
+            ),
         }
         """Parse raw stream line supporting both 'temp,hum' and 'timestamp,temp,hum'."""
         clean = line_str.strip()

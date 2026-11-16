@@ -209,12 +209,15 @@ async def ingest_telemetry(
     )
     
     return {
-        "status": "success",
-        "message": "Telemetry ingested successfully",
-        "timestamp": timestamp,
-        "temperature": temperature,
-        "humidity": humidity,
-        "source": "remote",
+        "status": result["status"],
+        "message": result["message"],
+        "timestamp": result["timestamp"],
+        "temperature": result["temperature"],
+        "humidity": result["humidity"],
+        "source": result["source"],
+        "anomaly_state": result["anomaly_state"],
+        "is_anomaly": result["is_anomaly"],
+        "hybrid_score": result["hybrid_score"],
     }
 
 

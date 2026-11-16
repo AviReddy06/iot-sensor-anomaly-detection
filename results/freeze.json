@@ -1,0 +1,14 @@
+{
+  "files": {
+    "models/iforest.joblib": "6f7de4c555fe6a3e123e4db479d8cb37259c69c987c16ffc3399c3c94f50733a",
+    "models/scaler.joblib": "e8a1fc15b5cd7cc837a395e58b5ca26c8a956ddbced80e0a5f373adc7c066217",
+    "models/thresholds.json": "485d6e87f031780555b32e1339afa0bc40acda667654135867ad7341c51e0d92",
+    "features/feature_engine.py": "dcf90523f693868aa94103ac07409b2ff40f768ade7f88e438b10e78150d6964",
+    "features/build_features_v2.py": "9849a5bb3c24c9df0755c5b680525e7a8e0d8868a315238711452d45e3f24abf"
+  },
+  "commit_hash": "cfe96e04e4d6ce3df43aace79d188acf3bee6137",
+  "verified_at": "2026-11-15T15:40:41.299064Z",
+  "models/iforest.joblib": "6f7de4c555fe6a3e123e4db479d8cb37259c69c987c16ffc3399c3c94f50733a",
+  "models/scaler.joblib": "e8a1fc15b5cd7cc837a395e58b5ca26c8a956ddbced80e0a5f373adc7c066217",
+  "models/thresholds.json": "485d6e87f031780555b32e1339afa0bc40acda667654135867ad7341c51e0d92"
+}

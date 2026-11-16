@@ -1,0 +1,21 @@
+{
+  "raw_normal_rows": 49728,
+  "dedup_exact_rows": 36952,
+  "after_burst_collapse_rows": 36663,
+  "quarantined_anomaly_rows": 389,
+  "train_clean_normal_rows": 34383,
+  "holdout_nov1_rows": 1891,
+  "live_today_rows": 59,
+  "pilot_rows": 3087,
+  "pilot_annotated_rows": 504,
+  "eval_suite_rows": 1950,
+  "eval_suite_anomalies": 143,
+  "eval_suite_faults": {
+    "slow_drift_fault": 45,
+    "heat_source_burst": 24,
+    "cold_draft_drop": 20,
+    "offset_fault": 20,
+    "breath_spike": 18,
+    "chatter_noise_fault": 16
+  }
+}

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: iot-anomaly-backend
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt && pip install -r requirements-web.txt"
+    startCommand: "uvicorn backend.app:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/health
+    envVars:
+      - key: ADMIN_PASSWORD
+        generateValue: true
+      - key: DB_PATH
+        value: /var/data/iot_anomaly.db
+      - key: SERIAL_PORT
+        value: auto
+    disk:
+      name: iot-anomaly-data
+      mountPath: /var/data
+      sizeGB: 1

@@ -24,7 +24,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.config import ALLOWED_ORIGIN_REGEX, ALLOWED_ORIGINS
+from backend.config import ALLOWED_ORIGIN_REGEX, ALLOWED_ORIGINS, EXTRA_ALLOWED_ORIGINS
 from backend.database import init_db
 from backend.logging_config import StructuredLoggingMiddleware, setup_logging
 from backend.routes.admin_routes import router as admin_router

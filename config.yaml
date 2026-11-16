@@ -88,7 +88,7 @@ alerts:
   ntfy:
     enabled: true
     server: "https://ntfy.sh"
-    topic: ""                 # Set in .env (NTFY_TOPIC) or dashboard sidebar
+    topic: "avi-iot-detection"                 # Set in .env (NTFY_TOPIC) or dashboard sidebar
   webhook:
     enabled: false            # Slack / Discord / Teams incoming webhook URL via ALERT_WEBHOOK_URL
   email:

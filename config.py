@@ -8,8 +8,9 @@ and Streamlit dashboards.
 
 from pathlib import Path
 import os
-from typing import Any, Dict, Optional
+import hmac
 import yaml
+from typing import Any, Dict, Optional
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -155,6 +156,11 @@ class Config:
     @property
     def contamination(self) -> Any:
         return self.get("model.contamination", "auto")
+
+    @property
+    def device_ingest_token(self) -> Optional[str]:
+        """Get the device ingestion token from environment variable."""
+        return os.environ.get("DEVICE_INGEST_TOKEN")
 
 
 # Global config instance

@@ -37,3 +37,13 @@ ALLOWED_ORIGINS: List[str] = [
 EXTRA_ALLOWED_ORIGINS: List[str] = [
     origin.strip() for origin in os.environ.get("EXTRA_ALLOWED_ORIGINS", "").split(",") if origin.strip()
 ]
+
+# Device ingestion token for remote ESP32 telemetry
+# Use a function to get the current value from environment at request time
+def get_device_ingest_token() -> Optional[str]:
+    """Get the device ingestion token from environment variable."""
+    return os.environ.get("DEVICE_INGEST_TOKEN")
+
+
+# Backward compatibility - module-level constant for backward compatibility
+DEVICE_INGEST_TOKEN: str | None = os.environ.get("DEVICE_INGEST_TOKEN")

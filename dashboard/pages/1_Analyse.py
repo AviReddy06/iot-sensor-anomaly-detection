@@ -622,6 +622,91 @@ elif source_option == "Live from ESP32 (serial)":
                 st.rerun()
 
 
+
+# ============================================================
+# REAL-TIME SENSOR MONITORING
+# ============================================================
+
+if (
+    st.session_state.is_collecting
+    or st.session_state.is_cloud_collecting
+):
+    if len(st.session_state.data_buffer) > 0:
+        chart_df = pd.DataFrame(
+            list(st.session_state.data_buffer)
+        )
+
+        chart_df["timestamp"] = pd.to_datetime(
+            chart_df["timestamp"],
+            errors="coerce",
+        )
+
+        chart_df["temperature"] = pd.to_numeric(
+            chart_df["temperature"],
+            errors="coerce",
+        )
+
+        chart_df["humidity"] = pd.to_numeric(
+            chart_df["humidity"],
+            errors="coerce",
+        )
+
+        chart_df = (
+            chart_df.dropna(
+                subset=["timestamp", "temperature", "humidity"]
+            )
+            .sort_values("timestamp")
+            .tail(120)
+        )
+
+        if not chart_df.empty:
+            st.divider()
+            st.header("📡 Real-Time Sensor Monitoring")
+
+            latest = chart_df.iloc[-1]
+
+            metric1, metric2, metric3 = st.columns(3)
+
+            metric1.metric(
+                "🌡️ Current Temperature",
+                f"{latest['temperature']:.2f} °C",
+            )
+
+            metric2.metric(
+                "💧 Current Humidity",
+                f"{latest['humidity']:.2f} %",
+            )
+
+            metric3.metric(
+                "📊 Total Readings",
+                len(st.session_state.data_buffer),
+            )
+
+            st.subheader("Temperature Monitoring")
+
+            st.line_chart(
+                chart_df,
+                x="timestamp",
+                y="temperature",
+                height=300,
+                color="#FF4B4B",
+            )
+
+            st.subheader("Humidity Monitoring")
+
+            st.line_chart(
+                chart_df,
+                x="timestamp",
+                y="humidity",
+                height=300,
+                color="#2196F3",
+            )
+
+            st.caption(
+                "Showing the latest 120 sensor readings. "
+                "Graphs update automatically as new telemetry arrives."
+            )
+
 # ============================================================
 # RENDER CLOUD MODE
 # ============================================================

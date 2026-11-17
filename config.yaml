@@ -77,7 +77,7 @@ dashboard:
 
 # Building-Wide Employee Alerts (keep secrets in local .env)
 alerts:
-  enabled: false              # Toggle live employee notifications (also controllable in UI / --alert)
+  enabled: true               # Employee broadcasts are always enabled; dispatch remains live-mode gated
   building_zone: "Building A - Floor 1"
   min_severity: "Medium"      # "Low", "Medium" (recommended), or "High"
   cooldown_sec: 180           # Minimum seconds between employee alerts for ongoing events

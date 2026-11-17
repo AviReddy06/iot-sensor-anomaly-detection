@@ -32,12 +32,8 @@ def render_alert_sidebar(
 
     with st.sidebar:
         with st.expander("🔔 Employee Alerts (Live Only)", expanded=False):
-            enabled = st.checkbox(
-                "Enable Broadcast Alerts",
-                value=curr.enabled,
-                key=f"alert_en_{page_id}",
-                help="Sends push/webhook/email alerts only during live ESP32 streaming (never during Demo/CSV playback).",
-            )
+            # Broadcast alerts are mandatory; the UI cannot disable them.
+            enabled = True
             zone = st.text_input(
                 "Building / Room Zone",
                 value=curr.building_zone,
@@ -72,7 +68,7 @@ def render_alert_sidebar(
 
             updated = replace(
                 curr,
-                enabled=bool(enabled),
+                enabled=True,
                 building_zone=zone.strip() or curr.building_zone,
                 ntfy_topic=ntfy_topic.strip(),
                 min_severity=min_severity,

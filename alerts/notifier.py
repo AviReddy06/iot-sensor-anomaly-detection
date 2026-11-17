@@ -51,7 +51,7 @@ def _to_naive_datetime(value: Any) -> datetime:
 class AlertSettings:
     """Runtime alert configuration loaded from config.yaml + environment variables."""
 
-    enabled: bool = False
+    enabled: bool = True
     building_zone: str = "Building A - Floor 1"
     min_severity: str = "Medium"
     cooldown_sec: float = 180.0
@@ -126,8 +126,8 @@ def load_alert_settings(
     log_rel = str(config.get("alerts.log_file", "logs/alert_history.csv"))
     log_path = Path(log_rel) if Path(log_rel).is_absolute() else (PROJECT_ROOT / log_rel)
 
-    cfg_enabled = bool(config.get("alerts.enabled", False))
-    enabled = cfg_enabled if override_enabled is None else bool(override_enabled)
+    # Broadcast alerts are hard-enabled; retain override_enabled for API compatibility only.
+    enabled = True
 
     return AlertSettings(
         enabled=enabled,
